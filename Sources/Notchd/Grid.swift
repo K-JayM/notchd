@@ -1,28 +1,51 @@
 import AppKit
 
-/// The nook is laid out in units (U). One U includes its share of the gap/divider between widgets,
-/// so N units always take exactly N × `unit` points, whatever the widget mix.
-enum Grid {
-    static let unit: CGFloat = 100
-    /// Horizontal padding inside the open notch (both sides).
-    static var padding: CGFloat { 2 * Settings.shared.prefs.contentPadding }
-    static let minWidth: CGFloat = 480 // the header (tabs + notch + buttons) needs this much
+/// Each width unit includes its share of the gap/divider between widgets.
+/// A row occupies N × `unit` points minus the trailing gap, plus the outer padding.
+struct Grid {
+    let sizing: OpenNotchSize
+    let contentPadding: CGFloat
 
-    static func gap(dividers: Bool) -> CGFloat { dividers ? 29 : 14 }
+    init(prefs: Prefs) {
+        sizing = prefs.openNotchSize
+        contentPadding = prefs.contentPadding
+    }
+
+    var unit: CGFloat { sizing == .compact ? 90 : 100 }
+    /// Horizontal padding inside the open notch (both sides).
+    var padding: CGFloat { 2 * contentPadding }
+    var verticalPadding: CGFloat { contentPadding * 0.8 }
+    var dividerPadding: CGFloat { sizing == .compact ? 8 : 14 }
+
+    func gap(dividers: Bool) -> CGFloat {
+        dividers ? 2 * dividerPadding + 1 : sizing == .compact ? 10 : 14
+    }
+
+    /// Two 26-point buttons and a 6-point gap on each side of the physical camera housing.
+    func minimumWidth(notchWidth: CGFloat) -> CGFloat {
+        max(sizing == .compact ? 380 : 480, notchWidth + 20 + 2 * (58 + 14))
+    }
 
     /// Point width of a widget spanning `units`.
-    static func width(units: Int, dividers: Bool) -> CGFloat {
+    func width(units: Int, dividers: Bool) -> CGFloat {
         CGFloat(units) * unit - gap(dividers: dividers)
     }
 
     /// How many units fit on a screen: the open notch may cover up to 75% of its width.
-    static func maxUnits(screenWidth: CGFloat) -> Int {
-        Int((screenWidth * 0.75 - padding) / unit)
+    func maxUnits(screenWidth: CGFloat) -> Int {
+        max(0, Int((screenWidth * 0.75 - padding) / unit))
     }
 
     /// Open notch width for `units` worth of widgets.
-    static func openWidth(units: Int, dividers: Bool) -> CGFloat {
-        max(minWidth, padding + CGFloat(units) * unit - gap(dividers: dividers))
+    func openWidth(units: Int, dividers: Bool, notchWidth: CGFloat = 0) -> CGFloat {
+        max(minimumWidth(notchWidth: notchWidth), padding + CGFloat(units) * unit - gap(dividers: dividers))
+    }
+
+    func openHeight(headerHeight: CGFloat, showsTimer: Bool) -> CGFloat {
+        // The timer wheels and Start button need more room than the media player and lists.
+        let contentHeight: CGFloat = showsTimer ? 128 : 100
+        let fittedHeight = headerHeight + 2 * verticalPadding + contentHeight
+        return sizing == .compact ? fittedHeight : max(200, fittedHeight)
     }
 }
 
@@ -49,8 +72,8 @@ struct NookLayout: Equatable {
 }
 
 extension WidgetKind {
-    var defaultUnits: Int { ["media": 3, "calendar": 2, "todo": 2, "timer": 3][rawValue]! }
-    var unitRange: ClosedRange<Int> { ["media": 3...4, "calendar": 2...4, "todo": 2...4, "timer": 3...4][rawValue]! }
+    var defaultUnits: Int { ["media": 3, "calendar": 2, "todo": 2, "timer": 3, "capture": 2][rawValue]! }
+    var unitRange: ClosedRange<Int> { ["media": 3...4, "calendar": 2...4, "todo": 2...4, "timer": 3...4, "capture": 2...3][rawValue]! }
 }
 
 extension Slot where Kind == WidgetKind {

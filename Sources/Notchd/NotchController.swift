@@ -28,6 +28,7 @@ final class NotchController {
     let model: NotchModel
     private let panel: NotchPanel
     private var monitors: [Any] = []
+    private var observers: [NSObjectProtocol] = []
     private var closeWork: DispatchWorkItem?
     private var dragChangeCount = NSPasteboard(name: .drag).changeCount
     private var scrollY: CGFloat = 0
@@ -49,7 +50,20 @@ final class NotchController {
         host.sizingOptions = []
         panel.contentView = host
         panel.ignoresMouseEvents = true
-        panel.orderFrontRegardless()
+        if !CaptureManager.shared.isActive { panel.orderFrontRegardless() }
+        observers.append(NotificationCenter.default.addObserver(forName: .captureVisibilityChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            if CaptureManager.shared.isActive { panel.orderOut(nil) }
+            else { panel.orderFrontRegardless() }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: .captureSaved, object: nil, queue: .main) { [weak self] note in
+            guard let self, note.userInfo?["displayID"] as? CGDirectDisplayID == model.displayID else { return }
+            withAnimation(.notchOpen) {
+                self.model.tab = .tray
+                self.model.state = .open
+                self.model.locked = true
+            }
+        })
 
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] in self?.handle($0) } as Any)
@@ -64,6 +78,8 @@ final class NotchController {
     }
 
     func close() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         panel.close()
@@ -71,7 +87,7 @@ final class NotchController {
 
     /// Visible shape in screen coordinates, padded so the closed notch is easy to hit.
     private var hitRect: NSRect {
-        guard !model.hiddenByFullscreen else { return .zero }
+        guard !model.hiddenByFullscreen, !CaptureManager.shared.isActive else { return .zero }
         let size = model.size(activity: ActivityCenter.shared.current(for: model))
         let pad: CGFloat = model.isOpen ? 4 : 10
         return NSRect(x: screen.frame.midX - size.width / 2 - pad,
@@ -80,6 +96,7 @@ final class NotchController {
     }
 
     private func handle(_ event: NSEvent) {
+        guard !CaptureManager.shared.isActive else { return }
         let mouse = NSEvent.mouseLocation
         guard screen.frame.contains(mouse) || model.isOpen || model.hovering else { return }
 
@@ -88,11 +105,12 @@ final class NotchController {
             dragChangeCount = NSPasteboard(name: .drag).changeCount
         case .leftMouseDragged:
             detectFileDrag(at: mouse)
-        case .leftMouseUp where model.dropping:
+        case .leftMouseUp where model.dropping || model.arrangingWidgets:
             // Give the drop a moment to land before closing.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self else { return }
                 model.dropping = false
+                model.arrangingWidgets = false
                 if !model.hovering { model.close() }
             }
         case .scrollWheel:
@@ -113,12 +131,12 @@ final class NotchController {
 
     private func updateHover(_ mouse: NSPoint) {
         let inside = hitRect.contains(mouse)
-        panel.ignoresMouseEvents = !(inside || model.dropping)
+        panel.ignoresMouseEvents = !(inside || model.dropping || model.arrangingWidgets)
         model.setHovering(inside)
         let prefs = Settings.shared.prefs
         if inside, prefs.alwaysOpenOnHover { model.open() }
 
-        if inside || model.locked || model.dropping || prefs.demoMode || (model.typing && prefs.preventCloseWhenTyping) {
+        if inside || model.locked || model.dropping || model.arrangingWidgets || prefs.demoMode || (model.typing && prefs.preventCloseWhenTyping) {
             closeWork?.cancel()
             closeWork = nil
         } else if model.isOpen, closeWork == nil {
@@ -133,11 +151,15 @@ final class NotchController {
 
     private func detectFileDrag(at mouse: NSPoint) {
         let pasteboard = NSPasteboard(name: .drag)
-        guard !model.dropping, pasteboard.changeCount != dragChangeCount,
-              pasteboard.types?.contains(where: [.fileURL, .URL, .string].contains) == true else { return }
+        guard !model.dropping, !model.arrangingWidgets, pasteboard.changeCount != dragChangeCount else { return }
         let zone = NSRect(x: screen.frame.midX - 200, y: screen.frame.maxY - 90, width: 400, height: 90)
         guard zone.contains(mouse) else { return }
-        model.dropping = true
+        if pasteboard.types?.contains(NSPasteboard.PasteboardType("app.notchd.widget")) == true {
+            model.arrangingWidgets = true
+            model.tab = .nook
+        } else if pasteboard.types?.contains(where: [.fileURL, .URL, .string].contains) == true {
+            model.dropping = true
+        } else { return }
         model.open()
     }
 

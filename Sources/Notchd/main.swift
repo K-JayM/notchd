@@ -74,6 +74,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         termSource = source
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard CaptureManager.shared.isActive else { return .terminateNow }
+        let alert = NSAlert()
+        alert.messageText = "Finish your capture first"
+        alert.informativeText = "Use the macOS Stop button to finish your recording, or press Escape to cancel the selection. Your capture will then be saved to the tray."
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+        return .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MediaManager.shared.stop()
     }

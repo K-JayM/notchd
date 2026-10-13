@@ -37,6 +37,7 @@ final class NotchModel {
     var tab: Tab = .nook
     var hovering = false
     var dropping = false   // a file drag is happening over the notch
+    var arrangingWidgets = false
     var locked = false
     var typing = false
 
@@ -44,19 +45,29 @@ final class NotchModel {
     /// Size of the shape when nothing is going on.
     let closedSize: CGSize
 
-    static let openHeight: CGFloat = 200
+    private let screenWidth: CGFloat
+    var grid: Grid { Grid(prefs: Settings.shared.prefs) }
+    var headerHeight: CGFloat { max(closedSize.height, 30) }
+    var headerNotchWidth: CGFloat { hasNotch ? closedSize.width + 20 : 0 }
 
     /// Widest the open notch may get on this screen, in units.
-    let maxUnits: Int
+    var maxUnits: Int { grid.maxUnits(screenWidth: screenWidth) }
     let displayID: CGDirectDisplayID
 
     /// Which widgets fit on this screen, in the user's order.
     var layout: NookLayout { NookLayout.fit(Settings.shared.prefs.widgets, maxUnits: maxUnits) }
 
-    /// The open notch is exactly as wide as the widgets it shows.
+    /// Home follows its widgets; the compact tray and drop targets don't need that full width.
     var openSize: CGSize {
-        CGSize(width: Grid.openWidth(units: layout.usedUnits, dividers: Settings.shared.prefs.showDividers),
-               height: Self.openHeight)
+        let prefs = Settings.shared.prefs
+        let layout = self.layout
+        let notchWidth = hasNotch ? closedSize.width : 0
+        var width = grid.openWidth(units: layout.usedUnits, dividers: prefs.showDividers, notchWidth: notchWidth)
+        if prefs.openNotchSize == .compact, dropping || tab == .tray {
+            width = max(grid.minimumWidth(notchWidth: notchWidth), min(width, 480))
+        }
+        let showsTimer = !dropping && tab == .nook && layout.shown.contains(.timer)
+        return CGSize(width: width, height: grid.openHeight(headerHeight: headerHeight, showsTimer: showsTimer))
     }
     static let activitySide: CGFloat = 46
 
@@ -64,7 +75,7 @@ final class NotchModel {
         let notch = screen.notchSize
         let prefs = Settings.shared.prefs
         hasNotch = notch != nil
-        maxUnits = Grid.maxUnits(screenWidth: screen.frame.width)
+        screenWidth = screen.frame.width
         displayID = screen.displayID
         closedSize = notch.map {
             CGSize(width: $0.width + prefs.notchWidthFineTune, height: $0.height + prefs.notchHeightFineTune)
@@ -120,7 +131,7 @@ final class NotchModel {
     }
 
     func open() {
-        guard !isOpen, Settings.shared.prefs.nookEnabled || dropping else { return }
+        guard !isOpen, Settings.shared.prefs.nookEnabled || dropping || arrangingWidgets else { return }
         withAnimation(.notchOpen) { state = .open }
         Haptics.tap()
     }
@@ -130,6 +141,7 @@ final class NotchModel {
         withAnimation(.notchClose) {
             state = .closed
             dropping = false
+            arrangingWidgets = false
             typing = false
         }
     }
