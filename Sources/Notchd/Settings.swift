@@ -146,24 +146,26 @@ extension Notification.Name {
 final class Settings {
     static let shared = Settings()
     private static let key = "prefs"
+    private let defaults: UserDefaults
 
     var prefs: Prefs {
         didSet {
             guard prefs != oldValue else { return }
-            UserDefaults.standard.set(try? JSONEncoder().encode(prefs), forKey: Self.key)
+            defaults.set(try? JSONEncoder().encode(prefs), forKey: Self.key)
             if prefs.layoutKey != oldValue.layoutKey {
                 NotificationCenter.default.post(name: .notchLayoutChanged, object: nil)
             }
         }
     }
 
-    init() {
-        prefs = Self.load()
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        prefs = Self.load(from: defaults)
     }
 
     /// Stored values are merged over the defaults so newly added fields don't wipe existing prefs.
-    private static func load() -> Prefs {
-        guard let stored = UserDefaults.standard.data(forKey: key),
+    private static func load(from defaults: UserDefaults) -> Prefs {
+        guard let stored = defaults.data(forKey: key),
               let storedDict = try? JSONSerialization.jsonObject(with: stored) as? [String: Any],
               let defaults = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Prefs())) as? [String: Any],
               let merged = try? JSONSerialization.data(withJSONObject: defaults.merging(storedDict) { $1 }),
@@ -174,9 +176,11 @@ final class Settings {
     }
 
     func reset() {
-        let welcomed = prefs.didShowWelcome
-        prefs = Prefs()
-        prefs.didShowWelcome = welcomed
+        var reset = Prefs()
+        reset.didShowWelcome = prefs.didShowWelcome
+        // Storage is data, not appearance: only Tray's folder controls should move it.
+        reset.trayFolder = prefs.trayFolder
+        prefs = reset
     }
 
     var launchAtLogin: Bool {
@@ -324,6 +328,7 @@ private struct GeneralPane: View {
                     }
                     Button("Show the welcome tour") { WelcomeWindowController.shared.show() }
                     Button("Reset all settings") { settings.reset() }
+                    Caption("Your tray folder and files stay where they are.")
                     Button("Quit Notchd") { NSApp.terminate(nil) }
                     Caption("Tip: right-click the notch for Settings and Quit.")
                 }
@@ -682,7 +687,7 @@ private struct NookPane: View {
 
 private struct TrayPane: View {
     @Bindable private var settings = Settings.shared
-    private var tray = TrayStore.shared
+    @Bindable private var tray = TrayStore.shared
 
     var body: some View {
         Pane {
@@ -709,6 +714,7 @@ private struct TrayPane: View {
                 Text("Move them").tag(true)
             }
             .pickerStyle(.radioGroup)
+            Caption("Pasting files always makes a copy and keeps the originals.")
             LabeledContent("Auto-clear:") {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
@@ -729,6 +735,9 @@ private struct TrayPane: View {
                     Caption("Removed files go to the Trash.")
                 }
             }
+        }
+        .alert(item: $tray.folderChangeNotice) { notice in
+            Alert(title: Text(notice.title), message: Text(notice.message), dismissButton: .default(Text("OK")))
         }
     }
 

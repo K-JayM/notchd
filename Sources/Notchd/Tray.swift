@@ -18,42 +18,57 @@ final class TrayStore {
     static let shared = TrayStore()
     static let defaultFolder = URL.appSupport.appendingPathComponent("TrayFiles", isDirectory: true)
 
+    struct FolderChangeNotice: Identifiable {
+        let id = UUID()
+        let title: String
+        let message: String
+    }
+
+    private let settings: Settings
+    private let fileManager: FileManager
     private(set) var files: [URL] = []
     private(set) var folder: URL
+    var folderChangeNotice: FolderChangeNotice?
     var selection: Set<URL> = []
     /// File shown in Quick Look (Space).
     var previewURL: URL?
     /// File whose name is being edited.
     var renaming: URL?
 
-    convenience init() {
-        self.init(folder: Settings.shared.prefs.trayFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
-            ?? Self.defaultFolder)
+    convenience init(settings: Settings = .shared) {
+        self.init(folder: settings.prefs.trayFolder.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? Self.defaultFolder, settings: settings)
     }
 
-    init(folder: URL) {
-        self.folder = folder
+    init(folder: URL, settings: Settings = .shared, fileManager: FileManager = .default) {
+        self.folder = folder.standardizedFileURL
+        self.settings = settings
+        self.fileManager = fileManager
         reload()
         // Auto-clear runs at launch and then hourly.
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.autoClear() }
     }
 
     func reload() {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        files = ((try? FileManager.default.contentsOfDirectory(
+        try? fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        files = ((try? fileManager.contentsOfDirectory(
             at: folder, includingPropertiesForKeys: [.addedToDirectoryDateKey], options: .skipsHiddenFiles)) ?? [])
+            .map(\.standardizedFileURL)
             .sorted { $0.addedDate < $1.addedDate }
         autoClear()
     }
 
     func add(_ urls: [URL]) {
-        let move = Settings.shared.prefs.trayMoveOnDrop
+        add(urls, move: settings.prefs.trayMoveOnDrop)
+    }
+
+    private func add(_ urls: [URL], move: Bool) {
         // Dragging a tray file back onto the tray is a no-op, not a duplicate.
         for url in urls where url.deletingLastPathComponent().standardizedFileURL != folder.standardizedFileURL {
             let target = uniqueTarget(for: url.lastPathComponent, in: folder)
             do {
-                if move { try FileManager.default.moveItem(at: url, to: target) }
-                else { try FileManager.default.copyItem(at: url, to: target) }
+                if move { try fileManager.moveItem(at: url, to: target) }
+                else { try fileManager.copyItem(at: url, to: target) }
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { files.append(target) }
             } catch {
                 NSLog("[Tray] \(move ? "move" : "copy") failed: \(error)")
@@ -64,7 +79,7 @@ final class TrayStore {
     /// Sends to the Trash rather than deleting: the tray folder may be one the user also uses.
     func remove(_ url: URL) {
         do {
-            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            try fileManager.trashItem(at: url, resultingItemURL: nil)
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { files.removeAll { $0 == url } }
         } catch {
             NSLog("[Tray] trash failed: \(error)")
@@ -81,7 +96,7 @@ final class TrayStore {
     /// Drops files that vanished from disk (moved out with an Option-drag, deleted in Finder...).
     func reconcile() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-            files.removeAll { !FileManager.default.fileExists(atPath: $0.path) }
+            files.removeAll { !fileManager.fileExists(atPath: $0.path) }
         }
         selection.formIntersection(files)
     }
@@ -93,7 +108,7 @@ final class TrayStore {
         guard !name.isEmpty, name != url.lastPathComponent, !name.contains("/") else { return nil }
         let target = uniqueTarget(for: name, in: folder)
         do {
-            try FileManager.default.moveItem(at: url, to: target)
+            try fileManager.moveItem(at: url, to: target)
             if let i = files.firstIndex(of: url) { files[i] = target }
             if selection.remove(url) != nil { selection.insert(target) }
             return target
@@ -113,7 +128,7 @@ final class TrayStore {
     func paste(from pasteboard: NSPasteboard = .general) {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
-            add(urls)
+            add(urls, move: false)
         } else if let image = NSImage(pasteboard: pasteboard) {
             add(image: image)
         } else if let url = pasteboard.readObjects(forClasses: [NSURL.self])?.first as? URL, url.scheme?.hasPrefix("http") == true {
@@ -158,25 +173,78 @@ final class TrayStore {
         return f.string(from: Date())
     }
 
-    /// Moves the tray (and its files) to a new folder; nil = default folder.
-    func setFolder(_ newFolder: URL?) {
-        let target = newFolder ?? Self.defaultFolder
-        guard target.standardizedFileURL != folder.standardizedFileURL else { return }
-        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        for file in files {
+    /// Copies everything before committing the new folder, then removes the originals.
+    /// A failed copy never strands files outside the active tray. nil = default folder.
+    @discardableResult
+    func setFolder(_ newFolder: URL?) -> Bool {
+        folderChangeNotice = nil
+        let target = (newFolder ?? Self.defaultFolder).standardizedFileURL
+        let sourcePath = folder.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let targetPath = target.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard sourcePath != targetPath else { return true }
+        // Nested folders would copy the tray into itself or make the old tray a tray item.
+        guard !targetPath.starts(with: sourcePath), !sourcePath.starts(with: targetPath) else {
+            folderChangeNotice = FolderChangeNotice(title: "Choose a separate folder",
+                message: "The new folder must not contain your current tray folder or be inside it. Your tray has not moved.")
+            return false
+        }
+
+        let originalFolder = folder
+        let originals = files
+        var staging: URL?
+        var destinations: [URL: URL] = [:]
+        do {
+            try fileManager.createDirectory(at: target, withIntermediateDirectories: true)
+            let temporary = target.appendingPathComponent(".notchd-migration-\(UUID().uuidString)", isDirectory: true)
+            try fileManager.createDirectory(at: temporary, withIntermediateDirectories: false)
+            staging = temporary
+            for file in originals {
+                try fileManager.copyItem(at: file, to: temporary.appendingPathComponent(file.lastPathComponent))
+            }
+            for file in originals {
+                let destination = uniqueTarget(for: file.lastPathComponent, in: target)
+                try fileManager.moveItem(at: temporary.appendingPathComponent(file.lastPathComponent), to: destination)
+                destinations[file] = URL(fileURLWithPath: destination.path, isDirectory: file.hasDirectoryPath)
+            }
+        } catch {
+            let leftovers = removeMigrationItems(Array(destinations.values) + [staging].compactMap { $0 })
+            let cleanup = leftovers.isEmpty ? "" : " Some extra copies could not be removed from \(target.path)."
+            folderChangeNotice = FolderChangeNotice(title: "Couldn’t change tray folder",
+                message: "Your tray is still in \(originalFolder.path), and all originals have been kept. \(error.localizedDescription)\(cleanup)")
+            return false
+        }
+
+        // Only change the saved location once every file is available at the destination.
+        folder = target
+        settings.prefs.trayFolder = newFolder?.path
+        selection = Set(selection.compactMap { destinations[$0] })
+        previewURL = previewURL.flatMap { destinations[$0] }
+        renaming = nil
+        let leftovers = removeMigrationItems(originals + [staging].compactMap { $0 })
+        reload()
+        if !leftovers.isEmpty {
+            folderChangeNotice = FolderChangeNotice(title: "Tray moved; extra copies remain",
+                message: "Your files are available in \(target.path). These originals or temporary copies could not be removed:\n\n"
+                    + leftovers.map(\.path).joined(separator: "\n"))
+        }
+        return true
+    }
+
+    /// Best-effort cleanup only ever touches migration-owned copies or committed originals.
+    private func removeMigrationItems(_ urls: [URL]) -> [URL] {
+        urls.filter { url in
             do {
-                try FileManager.default.moveItem(at: file, to: uniqueTarget(for: file.lastPathComponent, in: target))
+                try fileManager.removeItem(at: url)
+                return false
             } catch {
-                NSLog("[Tray] could not move \(file.lastPathComponent): \(error)")  // stays in the old folder
+                NSLog("[Tray] migration cleanup failed for \(url.path): \(error)")
+                return true
             }
         }
-        folder = target
-        Settings.shared.prefs.trayFolder = newFolder?.path
-        reload()
     }
 
     private func autoClear() {
-        let days = Settings.shared.prefs.trayAutoClearDays
+        let days = settings.prefs.trayAutoClearDays
         guard days > 0 else { return }
         let cutoff = Date().addingTimeInterval(-days * 86_400)
         files.filter { $0.addedDate < cutoff }.forEach(remove)
@@ -186,7 +254,7 @@ final class TrayStore {
         let base = (name as NSString).deletingPathExtension, ext = (name as NSString).pathExtension
         var target = dir.appendingPathComponent(name)
         var n = 2
-        while FileManager.default.fileExists(atPath: target.path) {
+        while fileManager.fileExists(atPath: target.path) {
             target = dir.appendingPathComponent(ext.isEmpty ? "\(base) \(n)" : "\(base) \(n).\(ext)")
             n += 1
         }
