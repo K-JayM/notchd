@@ -14,15 +14,15 @@ extension SlotKind {
 
 enum ActivityKind: String, SlotKind {
     // Default priority: short events first (they flash for a few seconds), long-lived ones after.
-    case bluetooth, battery, timerExpired, calendar, media, tray
+    case bluetooth, battery, timerExpired, updateAvailable, calendar, media, tray
     var id: Self { self }
     var title: String {
         ["media": "Media", "tray": "Tray", "calendar": "Calendar", "bluetooth": "Bluetooth",
-         "battery": "Battery", "timerExpired": "Timer Done"][rawValue]!
+         "battery": "Battery", "timerExpired": "Timer Done", "updateAvailable": "New Update"][rawValue]!
     }
     var icon: String {
         ["media": "music.note", "tray": "tray.fill", "calendar": "calendar", "bluetooth": "headphones",
-         "battery": "bolt.fill", "timerExpired": "timer"][rawValue]!
+         "battery": "bolt.fill", "timerExpired": "timer", "updateAvailable": "arrow.down.circle.fill"][rawValue]!
     }
 }
 
@@ -83,6 +83,7 @@ struct Prefs: Codable, Equatable {
     var contentPadding = 12.0
     var demoMode = false
     var didShowWelcome = false
+    var autoCheckUpdates = true
     // Gestures
     var allowGestures = true
     var gestureOpenClose = true
@@ -457,7 +458,7 @@ private struct CustomizeActivities: View {
                 case .media: MediaActivityOptions()
                 case .calendar: CalendarActivityOptions()
                 case .battery: BatteryActivityOptions()
-                case .tray, .bluetooth, .timerExpired: Caption("Nothing to configure here.")
+                case .tray, .bluetooth, .timerExpired, .updateAvailable: Caption("Nothing to configure here.")
                 }
             }
             .frame(width: 380)
@@ -485,6 +486,7 @@ private struct ActivityPreview: View {
                     case .calendar: CalendarActivityLeading(event: .sample)
                     case .bluetooth: BluetoothActivityLeading(event: .sample)
                     case .timerExpired: TimerActivityLeading()
+                    case .updateAvailable: UpdateActivityLeading()
                     case .battery: BatteryActivityLeading(percent: 82, state: .plugged)
                     }
                 }
@@ -497,6 +499,7 @@ private struct ActivityPreview: View {
                     case .calendar: CalendarActivityTrailing(event: .sample)
                     case .bluetooth: BluetoothActivityTrailing(event: .sample)
                     case .timerExpired: TimerActivityTrailing()
+                    case .updateAvailable: UpdateActivityTrailing()
                     case .battery: BatteryActivityTrailing(percent: 82, state: .plugged)
                     }
                 }
@@ -820,17 +823,49 @@ private struct UnitsGauge: View {
 }
 
 private struct AboutPane: View {
+    @Bindable private var settings = Settings.shared
+    private var updater = Updater.shared
+    private var info: [String: Any] { Bundle.main.infoDictionary ?? [:] }
+
     var body: some View {
         VStack(spacing: 10) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .frame(width: 72, height: 72)
-            Text("Notchd").font(.title.bold())
-            Text("v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")")
+            Text("notchd").font(.title.bold())
+            Text("Version \(info["CFBundleShortVersionString"] as? String ?? "dev") (\(info["CFBundleVersion"] as? String ?? "0"))")
                 .foregroundStyle(.secondary)
             Caption("A clean, open-source Dynamic Island–style notch for your Mac.")
+
+            Divider().padding(.vertical, 6)
+
+            HStack {
+                Button("Check for Updates") { updater.check() }
+                    .disabled(updater.status == .checking || updater.status == .installing)
+                Toggle("Check automatically", isOn: $settings.prefs.autoCheckUpdates)
+            }
+            Group {
+                switch updater.status {
+                case .idle: Text(" ")
+                case .checking: Text("Checking…")
+                case .upToDate: Text("You're up to date.")
+                case let .available(update):
+                    HStack {
+                        Text("notchd \(update.version) is available.")
+                        Button("Install & Relaunch") { updater.install() }
+                        Link("Release notes", destination: update.pageURL)
+                    }
+                case .installing: Text("Downloading and installing…")
+                case let .failed(message): Text(message).foregroundStyle(.orange)
+                }
+            }
+            .font(.callout)
+
+            Link("github.com/\(Updater.repo)", destination: URL(string: "https://github.com/\(Updater.repo)")!)
+                .font(.callout)
+                .padding(.top, 6)
         }
         .padding(30)
-        .frame(maxWidth: .infinity)
+        .frame(width: 520)
     }
 }

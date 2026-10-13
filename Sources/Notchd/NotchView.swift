@@ -169,6 +169,11 @@ struct ActivityView: View {
 
     @ViewBuilder private var leading: some View {
         switch activity {
+        case .hello:
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 22, height: 22)
+                .transition(.scale(scale: 0.3).combined(with: .opacity))
         case .media:
             if let info = media.nowPlaying { MediaActivityLeading(info: info) }
         case .calendar:
@@ -177,6 +182,8 @@ struct ActivityView: View {
             BluetoothActivityLeading(event: event)
         case .timerExpired:
             TimerActivityLeading()
+        case .updateAvailable:
+            UpdateActivityLeading()
         case let .tray(count):
             Image(systemName: "tray.fill")
                 .font(.system(size: 13, weight: .semibold))
@@ -188,6 +195,13 @@ struct ActivityView: View {
 
     @ViewBuilder private var trailing: some View {
         switch activity {
+        case .hello:
+            Image(systemName: "hand.wave.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.pink)
+                .phaseAnimator([0.0, 18, -8, 18, 0]) { view, angle in
+                    view.rotationEffect(.degrees(angle), anchor: .bottomTrailing)
+                } animation: { _ in .spring(response: 0.18, dampingFraction: 0.5) }
         case .media:
             if let info = media.nowPlaying { MediaEffectView(info: info) }
         case .calendar:
@@ -196,6 +210,8 @@ struct ActivityView: View {
             BluetoothActivityTrailing(event: event)
         case .timerExpired:
             TimerActivityTrailing()
+        case .updateAvailable:
+            UpdateActivityTrailing()
         case let .tray(count):
             Text("\(count)")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))

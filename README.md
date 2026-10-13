@@ -45,6 +45,7 @@ The closed notch widens to show what's going on, then tucks itself away.
 | 🎧 **Bluetooth** | Device connected / disconnected, with battery level for AirPods. |
 | 🔋 **Battery** | Charger connected or disconnected, fully charged, running low. |
 | ⏱️ **Timer Done** | A ringing timer with a Stop button. |
+| ⬇️ **New Update** | A new release is out: one click downloads it, swaps the app and relaunches. |
 | 🗂️ **Tray** | How many files are waiting in your tray. |
 
 - **Glance**: point at an activity and a line of details slides out below it (song title, event time, battery estimate…).
@@ -89,6 +90,8 @@ Drag anything to the top of the screen and the notch opens into drop zones.
 
 ### Download
 Grab the latest `Notchd-x.y.z.zip` from [Releases](https://github.com/notchd-app/notchd/releases), or a build of the latest commit from [Actions](https://github.com/notchd-app/notchd/actions/workflows/build.yml) (open a run, then *Artifacts*). It's a universal app: Apple Silicon and Intel, macOS 14 or later.
+
+After that, notchd keeps itself up to date: it checks GitHub Releases in the background (Settings → About → *Check automatically*) and shows a **New Update** activity when there's one.
 
 notchd isn't notarized yet, so macOS will refuse to open it the first time. After unzipping, run this once:
 
@@ -169,7 +172,7 @@ Handy launch arguments while hacking:
 open build/Notchd.app --args --open                  # open the notch on launch
 open build/Notchd.app --args --settings              # open Settings
 open build/Notchd.app --args --welcome               # show the welcome tour
-open build/Notchd.app --args -demo bluetooth         # battery | unplugged | full | low | bluetooth | timer | peek
+open build/Notchd.app --args -demo bluetooth         # battery | unplugged | full | low | bluetooth | timer | peek | update | install
 open build/Notchd.app --args -debugFakeEvent YES     # fake video call in 5 minutes
 ```
 
@@ -181,7 +184,7 @@ Pull requests are welcome. Keep the animations springy and the code small.
 - [ ] Calendar day strip, to-do favorites and archive
 - [ ] Drop-zone actions (zip, convert, compress images…) with installable packs
 - [ ] Volume & brightness overlay
-- [ ] Notarized releases and in-app updates
+- [ ] Notarized, Developer ID–signed releases
 
 ## Credits
 

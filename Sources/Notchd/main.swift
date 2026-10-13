@@ -2,9 +2,14 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controllers: [NotchController] = []
+    private var termSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        quitOtherInstances()
+        handleTerminationSignal()
         rebuildWindows()
+        // No Dock icon, no window: a quick wave says "I'm running".
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { ActivityCenter.shared.show(.hello, for: 2) }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.rebuildWindows() }
@@ -17,14 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BluetoothMonitor.shared.start()
         _ = TimersStore.shared  // rings even if the timer widget is never shown
         _ = FullscreenMonitor.shared
+        Updater.shared.start()
 
-        // Dev: `--args -demo battery|unplugged|full|low|bluetooth|timer|peek` fires a sample activity.
+        // Dev: `--args -demo battery|unplugged|full|low|bluetooth|timer|peek|update|install` fires a sample activity.
         if let demo = UserDefaults.standard.string(forKey: "demo") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 switch demo {
                 case "bluetooth": ActivityCenter.shared.show(.bluetooth(.sample))
                 case "timer": TimersStore.shared.start(seconds: 3)
                 case "peek": ActivityCenter.shared.peek(for: 10)
+                case "update": Updater.shared.check()
+                case "install":
+                    Updater.shared.check()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { Updater.shared.install() }
                 case "unplugged": ActivityCenter.shared.show(.battery(percent: 64, state: .unplugged))
                 case "full": ActivityCenter.shared.show(.battery(percent: 100, state: .full))
                 case "low": ActivityCenter.shared.show(.battery(percent: 15, state: .low))
@@ -44,6 +54,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 model.open()
             }
         }
+    }
+
+    /// One notch is enough: a freshly launched copy (e.g. a new version) replaces any running one.
+    private func quitOtherInstances() {
+        let me = ProcessInfo.processInfo.processIdentifier
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
+        where app.processIdentifier != me {
+            app.terminate()
+        }
+    }
+
+    /// `kill`/`pkill` send SIGTERM, which skips applicationWillTerminate and would orphan the media helper.
+    private func handleTerminationSignal() {
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        termSource = source
     }
 
     func applicationWillTerminate(_ notification: Notification) {

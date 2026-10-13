@@ -7,15 +7,20 @@ enum LiveActivity: Equatable {
     case calendar
     case bluetooth(BluetoothEvent)
     case timerExpired
+    case updateAvailable
     case battery(percent: Int, state: BatteryState)
+    /// Launch greeting; not a user-configurable activity.
+    case hello
 
-    var kind: ActivityKind {
+    var kind: ActivityKind? {
         switch self {
+        case .hello: nil
         case .media: .media
         case .tray: .tray
         case .calendar: .calendar
         case .bluetooth: .bluetooth
         case .timerExpired: .timerExpired
+        case .updateAvailable: .updateAvailable
         case .battery: .battery
         }
     }
@@ -47,6 +52,7 @@ final class ActivityCenter {
     /// The activity a given notch shows: user order, minus dismissed ones and per-screen rules.
     func current(for model: NotchModel) -> LiveActivity? {
         let prefs = Settings.shared.prefs
+        if flash == .hello { return .hello }
         guard prefs.liveActivitiesEnabled, model.hasNotch || !prefs.hideActivitiesOnPlainScreens else { return nil }
         let fullscreen = FullscreenMonitor.shared.isFullscreen(model.displayID)
         let trayCount = TrayStore.shared.files.count
@@ -54,7 +60,9 @@ final class ActivityCenter {
                       MediaManager.shared.showActivity ? .media : nil,
                       trayCount > 0 ? .tray(count: trayCount) : nil,
                       CalendarStore.shared.upcoming != nil ? .calendar : nil,
-                      TimersStore.shared.hasExpired ? .timerExpired : nil].compactMap { $0 }
+                      TimersStore.shared.hasExpired ? .timerExpired : nil,
+                      Updater.shared.available != nil || Updater.shared.status == .installing ? .updateAvailable : nil]
+            .compactMap { $0 }
         for slot in prefs.activities where slot.enabled {
             guard let activity = active.first(where: { $0.kind == slot.kind }), !isDismissed(activity),
                   !(fullscreen && prefs.hiddenInFullscreen.contains(slot.kind)) else { continue }
@@ -67,13 +75,13 @@ final class ActivityCenter {
     func dismiss(_ activity: LiveActivity) {
         withAnimation(.notchClose) {
             switch activity {
-            case .battery, .bluetooth:
+            case .battery, .bluetooth, .hello:
                 hideWork?.cancel()
                 flash = nil
             case .timerExpired:
                 TimersStore.shared.dismissExpired()
-            case .media, .tray, .calendar:
-                dismissed[activity.kind] = Self.signature(of: activity)
+            case .media, .tray, .calendar, .updateAvailable:
+                if let kind = activity.kind { dismissed[kind] = Self.signature(of: activity) }
             }
         }
     }
@@ -86,7 +94,7 @@ final class ActivityCenter {
 
     /// With "Unhide automatically", a dismissed activity returns once it shows something new.
     private func isDismissed(_ activity: LiveActivity) -> Bool {
-        guard let hiddenSignature = dismissed[activity.kind] else { return false }
+        guard let kind = activity.kind, let hiddenSignature = dismissed[kind] else { return false }
         return !Settings.shared.prefs.unhideAutomatically || hiddenSignature == Self.signature(of: activity)
     }
 
@@ -101,7 +109,9 @@ final class ActivityCenter {
         case .calendar:
             let event = CalendarStore.shared.upcoming
             return "\(event?.title ?? "")|\(event?.start.timeIntervalSince1970 ?? 0)"
-        case .battery, .bluetooth, .timerExpired:
+        case .updateAvailable:
+            return Updater.shared.available?.version ?? ""
+        case .battery, .bluetooth, .timerExpired, .hello:
             return ""
         }
     }
@@ -201,6 +211,11 @@ struct GlanceLine: View {
                 Text(event.connected ? "connected" : "disconnected").foregroundStyle(.secondary)
             case let .battery(_, state):
                 Text(Self.batteryText(state))
+            case .updateAvailable:
+                Text("notchd \(Updater.shared.available?.version ?? "")").fontWeight(.semibold)
+                Text("is available").foregroundStyle(.secondary)
+            case .hello:
+                Text("notchd is running").fontWeight(.semibold)
             case .timerExpired:
                 Text("Timer ended").fontWeight(.semibold)
             }
