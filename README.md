@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/notchd-app/notchd/actions/workflows/build.yml"><img src="https://github.com/notchd-app/notchd/actions/workflows/build.yml/badge.svg" alt="Build"></a>
   <img src="https://img.shields.io/badge/macOS-14%2B-black?logo=apple" alt="macOS 14+">
   <img src="https://img.shields.io/badge/Swift-SwiftUI-F05138?logo=swift&logoColor=white" alt="Swift">
   <img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="Apache 2.0">
@@ -86,7 +87,17 @@ Drag anything to the top of the screen and the notch opens into drop zones.
 
 ## Install
 
-notchd isn't notarized yet, so for now you build it yourself. It takes about a minute.
+### Download
+Grab the latest `Notchd-x.y.z.zip` from [Releases](https://github.com/notchd-app/notchd/releases), or a build of the latest commit from [Actions](https://github.com/notchd-app/notchd/actions/workflows/build.yml) (open a run, then *Artifacts*). It's a universal app: Apple Silicon and Intel, macOS 14 or later.
+
+notchd isn't notarized yet, so macOS will refuse to open it the first time. After unzipping, run this once:
+
+```sh
+xattr -dr com.apple.quarantine Notchd.app
+```
+
+### Build from source
+It takes about a minute.
 
 **Requirements:** macOS 14 Sonoma or later, Xcode or the Command Line Tools (`xcode-select --install`), and `cmake` for the media helper (`brew install cmake`).
 
@@ -138,9 +149,18 @@ scripts/                bundle, tests, media helper, icon
 ```
 
 ```sh
-./scripts/test.sh     # unit tests
-./scripts/bundle.sh   # build build/Notchd.app
-./scripts/make-icns.sh  # regenerate the icon from scripts/make-icon.swift
+./scripts/test.sh                  # unit tests
+./scripts/bundle.sh                # build build/Notchd.app for this Mac
+UNIVERSAL=1 ./scripts/bundle.sh    # Apple Silicon + Intel, like CI
+./scripts/make-icns.sh             # regenerate the icon from scripts/make-icon.swift
+```
+
+### Releases
+The version lives in the `VERSION` file. CI ([`.github/workflows/build.yml`](.github/workflows/build.yml)) tests and builds every push and pull request and uploads the zipped app as an artifact. Pushing a tag that matches `VERSION` also publishes a GitHub Release:
+
+```sh
+echo 0.2.0 > VERSION && git commit -am "Release 0.2.0"
+git tag v0.2.0 && git push origin main v0.2.0
 ```
 
 Handy launch arguments while hacking:
@@ -161,7 +181,7 @@ Pull requests are welcome. Keep the animations springy and the code small.
 - [ ] Calendar day strip, to-do favorites and archive
 - [ ] Drop-zone actions (zip, convert, compress images…) with installable packs
 - [ ] Volume & brightness overlay
-- [ ] Signed, notarized releases with in-app updates
+- [ ] Notarized releases and in-app updates
 
 ## Credits
 
