@@ -27,5 +27,8 @@ cp -R .build/mediaremote/MediaRemoteAdapter.framework .build/mediaremote/mediare
 # A stable identity keeps privacy permissions (Calendar, ...) across rebuilds; ad-hoc signing ties them
 # to the binary hash, so macOS asks again after every build. Override with NOTCHD_SIGN_IDENTITY.
 IDENTITY=${NOTCHD_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | grep -m1 -o '"Apple Development[^"]*"' | tr -d '"')}
-codesign --force --sign "${IDENTITY:--}" "$APP"
+IDENTITY=${IDENTITY:--}
+# Inside out: the helper framework first, then the app that seals it.
+codesign --force --sign "$IDENTITY" "$APP/Contents/Resources/MediaRemoteAdapter.framework"
+codesign --force --sign "$IDENTITY" "$APP"
 echo "$APP ($VERSION, build $BUILD_NUMBER)"

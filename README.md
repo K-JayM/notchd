@@ -123,6 +123,17 @@ notchd only asks for what a feature needs, the first time it needs it:
 
 Now Playing works without any permission through [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter).
 
+### Signing
+Release builds are signed with a free self-signed certificate. It doesn't silence Gatekeeper on first launch (that takes a paid Developer ID), but a stable signature lets macOS keep notchd's permissions across updates, and the updater only installs builds signed with the same certificate.
+
+Maintainers set it up once:
+
+```sh
+./scripts/make-signing-cert.sh --upload   # creates ~/.notchd-signing and the GitHub secrets
+```
+
+Back up `~/.notchd-signing`: a new certificate means everyone re-grants permissions once, and installed copies won't auto-update across the switch. Without the secrets, CI falls back to ad-hoc signing.
+
 ## Gestures cheat sheet
 
 | Do this on the notch | To |

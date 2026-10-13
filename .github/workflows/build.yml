@@ -18,6 +18,10 @@ jobs:
   build:
     name: Test & build
     runs-on: macos-15
+    env:
+      # Optional (scripts/make-signing-cert.sh sets them). Without them the app is signed ad hoc.
+      MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -42,6 +46,24 @@ jobs:
 
       - name: Unit tests
         run: ./scripts/test.sh
+
+      - name: Import signing certificate
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          # -v hides untrusted self-signed certs, so list them all and take the first one.
+          IDENTITY=$(security find-identity -p codesigning "$KEYCHAIN" | grep -m1 -o '"[^"]*"' | tr -d '"')
+          echo "Signing as: $IDENTITY"
+          echo "NOTCHD_SIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
       - name: Build universal app
         env:

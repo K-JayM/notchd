@@ -133,7 +133,22 @@ final class Updater {
             throw UpdateError("The download isn't a notchd build.")
         }
         try run("/usr/bin/codesign", ["--verify", "--deep", app.path])
+        guard signedLikeUs(app) else { throw UpdateError("The download isn't signed with notchd's certificate.") }
         return app
+    }
+
+    /// When we carry a real certificate, an update must be signed with the same one: a hijacked release
+    /// can't slip in a foreign build. Ad-hoc builds (pinned to their own hash) can't check this, so they don't.
+    static func signedLikeUs(_ app: URL, current: URL = Bundle.main.bundleURL) -> Bool {
+        var currentCode: SecStaticCode?, newCode: SecStaticCode?, requirement: SecRequirement?
+        guard SecStaticCodeCreateWithPath(current as CFURL, [], &currentCode) == errSecSuccess, let currentCode,
+              SecCodeCopyDesignatedRequirement(currentCode, [], &requirement) == errSecSuccess, let requirement
+        else { return false }
+        var text: CFString?
+        SecRequirementCopyString(requirement, [], &text)
+        if (text as String?)?.contains("cdhash") ?? true { return true }  // ad hoc: nothing to pin
+        guard SecStaticCodeCreateWithPath(app as CFURL, [], &newCode) == errSecSuccess, let newCode else { return false }
+        return SecStaticCodeCheckValidity(newCode, [], requirement) == errSecSuccess
     }
 
     private func swapAndRelaunch(with newApp: URL) {
