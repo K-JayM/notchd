@@ -96,11 +96,19 @@ final class NotchController {
                 if !model.hovering { model.close() }
             }
         case .scrollWheel:
+            guard Self.scrollTargetsNotch(window: event.window, panel: panel,
+                                          location: event.locationInWindow, hitRect: hitRect) else { return }
             handleScroll(event)
         default:
             break
         }
         updateHover(mouse)
+    }
+
+    /// Local monitors see every app window. Only the panel under this event may act on it,
+    /// even when another screen's notch is pinned open.
+    static func scrollTargetsNotch(window: NSWindow?, panel: NSWindow, location: NSPoint, hitRect: NSRect) -> Bool {
+        window === panel && hitRect.contains(panel.convertPoint(toScreen: location))
     }
 
     private func updateHover(_ mouse: NSPoint) {
