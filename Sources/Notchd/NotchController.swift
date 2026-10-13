@@ -1,0 +1,205 @@
+import AppKit
+import SwiftUI
+
+final class NotchPanel: NSPanel {
+    init(frame: NSRect) {
+        super.init(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                   backing: .buffered, defer: false)
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        isMovable = false
+        isReleasedWhenClosed = false
+        level = NSWindow.Level(NSWindow.Level.mainMenu.rawValue + 3)
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// One per screen: owns the panel, tracks the mouse and turns scroll/drag events into notch state.
+final class NotchController {
+    let screen: NSScreen
+    let model: NotchModel
+    private let panel: NotchPanel
+    private var monitors: [Any] = []
+    private var closeWork: DispatchWorkItem?
+    private var dragChangeCount = NSPasteboard(name: .drag).changeCount
+    private var scrollY: CGFloat = 0
+    private var scrollX: CGFloat = 0
+    private var scrollConsumed = false
+
+    // Big enough for the open notch plus its shadow and spring overshoot.
+    private static let windowHeight: CGFloat = 280
+
+    init(screen: NSScreen) {
+        self.screen = screen
+        model = NotchModel(screen: screen)
+        // Full screen width: the open notch grows with its widgets. Clicks outside the shape pass through anyway.
+        let size = CGSize(width: screen.frame.width, height: Self.windowHeight)
+        panel = NotchPanel(frame: NSRect(x: screen.frame.midX - size.width / 2,
+                                         y: screen.frame.maxY - size.height,
+                                         width: size.width, height: size.height))
+        let host = FirstMouseHostingView(rootView: NotchView(model: model))
+        host.sizingOptions = []
+        panel.contentView = host
+        panel.ignoresMouseEvents = true
+        panel.orderFrontRegardless()
+
+        let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
+        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] in self?.handle($0) } as Any)
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: mask.union(.scrollWheel)) { [weak self] event in
+            self?.handle(event)
+            return event
+        } as Any)
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === panel, handleTrayKey(event) else { return event }
+            return nil
+        } as Any)
+    }
+
+    func close() {
+        monitors.forEach(NSEvent.removeMonitor)
+        monitors = []
+        panel.close()
+    }
+
+    /// Visible shape in screen coordinates, padded so the closed notch is easy to hit.
+    private var hitRect: NSRect {
+        guard !model.hiddenByFullscreen else { return .zero }
+        let size = model.size(activity: ActivityCenter.shared.current(for: model))
+        let pad: CGFloat = model.isOpen ? 4 : 10
+        return NSRect(x: screen.frame.midX - size.width / 2 - pad,
+                      y: screen.frame.maxY - size.height - pad,
+                      width: size.width + 2 * pad, height: size.height + pad + 1)
+    }
+
+    private func handle(_ event: NSEvent) {
+        let mouse = NSEvent.mouseLocation
+        guard screen.frame.contains(mouse) || model.isOpen || model.hovering else { return }
+
+        switch event.type {
+        case .leftMouseDown:
+            dragChangeCount = NSPasteboard(name: .drag).changeCount
+        case .leftMouseDragged:
+            detectFileDrag(at: mouse)
+        case .leftMouseUp where model.dropping:
+            // Give the drop a moment to land before closing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self else { return }
+                model.dropping = false
+                if !model.hovering { model.close() }
+            }
+        case .scrollWheel:
+            handleScroll(event)
+        default:
+            break
+        }
+        updateHover(mouse)
+    }
+
+    private func updateHover(_ mouse: NSPoint) {
+        let inside = hitRect.contains(mouse)
+        panel.ignoresMouseEvents = !(inside || model.dropping)
+        model.setHovering(inside)
+        let prefs = Settings.shared.prefs
+        if inside, prefs.alwaysOpenOnHover { model.open() }
+
+        if inside || model.locked || model.dropping || prefs.demoMode || (model.typing && prefs.preventCloseWhenTyping) {
+            closeWork?.cancel()
+            closeWork = nil
+        } else if model.isOpen, closeWork == nil {
+            let work = DispatchWorkItem { [weak self] in
+                self?.closeWork = nil
+                self?.model.close()
+            }
+            closeWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+        }
+    }
+
+    private func detectFileDrag(at mouse: NSPoint) {
+        let pasteboard = NSPasteboard(name: .drag)
+        guard !model.dropping, pasteboard.changeCount != dragChangeCount,
+              pasteboard.types?.contains(where: [.fileURL, .URL, .string].contains) == true else { return }
+        let zone = NSRect(x: screen.frame.midX - 200, y: screen.frame.maxY - 90, width: 400, height: 90)
+        guard zone.contains(mouse) else { return }
+        model.dropping = true
+        model.open()
+    }
+
+    /// Finder-style shortcuts in the Tray tab. Returns true when the key was handled.
+    private func handleTrayKey(_ event: NSEvent) -> Bool {
+        guard model.isOpen, model.tab == .tray, !model.dropping, !model.typing else { return false }
+        let store = TrayStore.shared
+        let selected = store.files.filter(store.selection.contains)
+        let command = event.modifierFlags.contains(.command)
+        switch (command, event.charactersIgnoringModifiers?.lowercased(), event.keyCode) {
+        case (true, "v", _): store.paste()
+        case (true, "c", _): store.copyToPasteboard(selected)
+        case (true, "a", _): store.selection = Set(store.files)
+        case (_, _, 51), (_, _, 117): store.remove(selected)       // delete, forward delete
+        case (false, " ", _): store.previewURL = selected.first ?? store.files.first
+        case (false, _, 36) where selected.count == 1: store.renaming = selected[0]  // return
+        case (false, _, 53): store.selection = []                  // escape
+        default: return false
+        }
+        Haptics.tap()
+        return true
+    }
+
+    /// Scrolling a list or a timer wheel in the open notch must not close it.
+    private func isOverScrollView(_ event: NSEvent) -> Bool {
+        guard model.isOpen, let content = panel.contentView else { return false }
+        var view = content.hitTest(content.convert(event.locationInWindow, from: nil))
+        while let current = view {
+            if current is NSScrollView { return true }
+            view = current.superview
+        }
+        return false
+    }
+
+    /// Trackpad: fingers down opens, fingers up closes (or hides an activity); sideways changes track.
+    private func handleScroll(_ event: NSEvent) {
+        let prefs = Settings.shared.prefs
+        guard prefs.allowGestures, !isOverScrollView(event) else { return }
+        if event.phase == .began { scrollX = 0; scrollY = 0; scrollConsumed = false }
+        guard !scrollConsumed, event.phase != [] else { return }
+        let natural: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
+        scrollY += event.scrollingDeltaY * natural  // > 0: fingers moving down
+        scrollX += event.scrollingDeltaX * natural  // > 0: fingers moving right
+
+        // Only act on a clearly dominant axis, so diagonal swipes don't do both.
+        if abs(scrollX) > 40, abs(scrollX) > 2 * abs(scrollY) {
+            scrollConsumed = true
+            changeTrack(fingersRight: scrollX > 0)
+            return
+        }
+        guard prefs.gestureOpenClose, abs(scrollY) > 20, abs(scrollY) > abs(scrollX) else { return }
+        scrollConsumed = true
+        let activities = ActivityCenter.shared
+        if scrollY > 0, !model.isOpen {
+            // Swipe down brings back activities hidden for good (Unhide automatically off) before opening.
+            if activities.hasDismissed, !prefs.unhideAutomatically { activities.unhideAll() } else { model.open() }
+        } else if scrollY < 0, model.isOpen {
+            model.close()
+        } else if scrollY < 0, let activity = activities.current(for: model) {
+            activities.dismiss(activity)
+            Haptics.tap()
+        }
+    }
+
+    /// A left swipe goes back, a right swipe skips; "Invert" flips it.
+    private func changeTrack(fingersRight: Bool) {
+        let prefs = Settings.shared.prefs
+        guard prefs.gestureControlMedia, MediaManager.shared.nowPlaying != nil else { return }
+        if fingersRight != prefs.invertMediaGestures { MediaManager.shared.next() } else { MediaManager.shared.previous() }
+        Haptics.tap()
+        if !model.isOpen { ActivityCenter.shared.peek() }
+    }
+}
