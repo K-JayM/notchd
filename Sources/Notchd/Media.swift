@@ -286,13 +286,7 @@ struct Waves: View {
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 for (speed, alpha) in [(5.0, 1.0), (-3.5, 0.45)] {
-                    var path = Path()
-                    for x in stride(from: 0, through: size.width, by: 1) {
-                        let progress = x / size.width
-                        let envelope = sin(progress * .pi)  // pinned at both ends
-                        let y = size.height / 2 + sin(progress * 2.4 * .pi + t * speed) * envelope * amplitude * size.height / 2.4
-                        x == 0 ? path.move(to: CGPoint(x: x, y: y)) : path.addLine(to: CGPoint(x: x, y: y))
-                    }
+                    let path = Self.wave(in: size, time: t, speed: speed, amplitude: amplitude)
                     context.stroke(path, with: .color(tint.opacity(alpha)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 }
             }
@@ -301,6 +295,21 @@ struct Waves: View {
         .onChange(of: playing) { _, value in
             withAnimation(.spring(response: 0.5, dampingFraction: 0.6)) { amplitude = value ? 1 : 0 }
         }
+    }
+
+    /// A sine wave pinned at both ends. Split into steps: older compilers time out type-checking it inline.
+    private static func wave(in size: CGSize, time: Double, speed: Double, amplitude: CGFloat) -> Path {
+        var path = Path()
+        let middle: CGFloat = size.height / 2
+        let height: CGFloat = amplitude * size.height / 2.4
+        for x in stride(from: CGFloat(0), through: size.width, by: 1) {
+            let progress: CGFloat = x / size.width
+            let envelope: CGFloat = sin(progress * .pi)
+            let phase: CGFloat = progress * 2.4 * .pi + CGFloat(time * speed)
+            let point = CGPoint(x: x, y: middle + sin(phase) * envelope * height)
+            if x == 0 { path.move(to: point) } else { path.addLine(to: point) }
+        }
+        return path
     }
 }
 
