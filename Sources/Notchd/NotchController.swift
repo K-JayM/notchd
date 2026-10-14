@@ -65,6 +65,26 @@ final class NotchController {
             }
         })
 
+        // ⇧⌘V: open the clipboard on the screen under the pointer and take the keyboard.
+        observers.append(NotificationCenter.default.addObserver(forName: .showClipboard, object: nil, queue: .main) { [weak self] _ in
+            guard let self, screen.frame.contains(NSEvent.mouseLocation) else { return }
+            withAnimation(.notchOpen) {
+                self.model.tab = .clipboard
+                self.model.state = .open
+            }
+            model.locked = true
+            ClipboardStore.shared.query = ""
+            ClipboardStore.shared.selection = ClipboardStore.shared.visible.first?.id
+            panel.ignoresMouseEvents = false
+            panel.makeKey()
+        })
+        // Clicking another app dismisses the history opened with ⇧⌘V (it's pinned open until then).
+        observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel,
+                                                                queue: .main) { [weak self] _ in
+            guard let self, model.isOpen, model.tab == .clipboard, ClipboardShortcut.shared.previousApp != nil else { return }
+            closeClipboard()
+        })
+
         let mask: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .leftMouseDown, .leftMouseUp]
         monitors.append(NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] in self?.handle($0) } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: mask.union(.scrollWheel)) { [weak self] event in
@@ -72,9 +92,24 @@ final class NotchController {
             return event
         } as Any)
         monitors.append(NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === panel, handleTrayKey(event) else { return event }
+            guard let self, event.window === panel, handleTrayKey(event) || handleClipboardKey(event) else { return event }
             return nil
         } as Any)
+    }
+
+    /// Renders the notch window's top-centre into a PNG, for checking layouts during development.
+    func snapshot(to path: String) {
+        guard let view = panel.contentView else { return }
+        let size = model.isOpen ? model.openSize : model.size(activity: ActivityCenter.shared.current(for: model))
+        let top = view.isFlipped ? view.bounds.minY : view.bounds.maxY - size.height - 20
+        let rect = NSRect(x: view.bounds.midX - size.width / 2 - 40, y: top, width: size.width + 80, height: size.height + 20)
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: rect) else { return NSLog("[Snapshot] no bitmap") }
+        view.cacheDisplay(in: rect, to: rep)
+        do {
+            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        } catch {
+            NSLog("[Snapshot] \(error)")
+        }
     }
 
     func close() {
@@ -208,6 +243,43 @@ final class NotchController {
         }
         Haptics.tap()
         return true
+    }
+
+    /// Arrows pick a card, Return uses it, Delete removes it, Escape closes. Typing goes to the search field.
+    private func handleClipboardKey(_ event: NSEvent) -> Bool {
+        guard model.isOpen, model.tab == .clipboard, !model.dropping else { return false }
+        let store = ClipboardStore.shared
+        switch event.keyCode {
+        case 123: store.moveSelection(by: -1)                      // left
+        case 124: store.moveSelection(by: 1)                       // right
+        case 36, 76:                                               // return, enter
+            guard let item = store.selectedItem else { return false }
+            if Settings.shared.prefs.clipboardPasteOnClick || ClipboardShortcut.shared.previousApp != nil {
+                let target = ClipboardShortcut.shared.targetApp()
+                closeClipboard()
+                store.paste(item, into: target)
+            } else {
+                store.copy(item)
+                model.copiedFlash = item.id
+            }
+        case 51 where !model.typing, 117:                          // delete, forward delete
+            guard let item = store.selectedItem else { return false }
+            store.moveSelection(by: 1)
+            store.delete(item)
+        case 53:                                                   // escape
+            closeClipboard()
+            ClipboardShortcut.shared.previousApp?.activate()
+        default:
+            return false
+        }
+        Haptics.tap()
+        return true
+    }
+
+    private func closeClipboard() {
+        model.locked = false
+        model.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { ClipboardShortcut.shared.clearPrevious() }
     }
 
     /// Scrolling a list or a timer wheel in the open notch must not close it.

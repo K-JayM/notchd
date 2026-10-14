@@ -9,6 +9,14 @@ enum LiveActivity: Equatable {
     case timerExpired
     case updateAvailable
     case battery(percent: Int, state: BatteryState)
+    case focus(FocusEvent)
+    case download(DownloadEvent)
+    /// The newest busy session, and how many there are.
+    case agent(AgentSession, count: Int)
+    case agentDone(AgentSession)
+    case privacy(camera: Bool, microphone: Bool)
+    case pomodoro
+    case keepAwake
     /// Launch greeting; not a user-configurable activity.
     case hello
     /// Volume/brightness overlay; always wins while it's up.
@@ -26,6 +34,12 @@ enum LiveActivity: Equatable {
         case .timerExpired: .timerExpired
         case .updateAvailable: .updateAvailable
         case .battery: .battery
+        case .focus: .focus
+        case .download: .download
+        case .agent, .agentDone: .agent
+        case .privacy: .privacy
+        case .pomodoro: .pomodoro
+        case .keepAwake: .keepAwake
         }
     }
 }
@@ -64,13 +78,20 @@ final class ActivityCenter {
         guard prefs.liveActivitiesEnabled, model.hasNotch || !prefs.hideActivitiesOnPlainScreens else { return nil }
         let fullscreen = FullscreenMonitor.shared.isFullscreen(model.displayID)
         let trayCount = TrayStore.shared.files.count
+        let privacy = PrivacyMonitor.shared
+        let agents = AgentMonitor.shared.active
         let active = [flash,
                       MediaManager.shared.showActivity ? .media : nil,
                       trayCount > 0 ? .tray(count: trayCount) : nil,
                       CalendarStore.shared.upcoming != nil ? .calendar : nil,
                       TimersStore.shared.hasExpired ? .timerExpired : nil,
-                      Updater.shared.available != nil || Updater.shared.status == .installing ? .updateAvailable : nil]
+                      Updater.shared.available != nil || Updater.shared.status == .installing ? .updateAvailable : nil,
+                      privacy.inUse ? .privacy(camera: privacy.camera, microphone: privacy.microphone) : nil,
+                      agents.first.map { .agent($0, count: agents.count) },
+                      PomodoroStore.shared.isActive ? .pomodoro : nil,
+                      KeepAwake.shared.isOn ? .keepAwake : nil]
             .compactMap { $0 }
+        forgetEnded(active)
         for slot in prefs.activities where slot.enabled {
             guard let activity = active.first(where: { $0.kind == slot.kind }), !isDismissed(activity),
                   !(fullscreen && prefs.hiddenInFullscreen.contains(slot.kind)) else { continue }
@@ -83,20 +104,28 @@ final class ActivityCenter {
     func dismiss(_ activity: LiveActivity) {
         withAnimation(.notchClose) {
             switch activity {
-            case .battery, .bluetooth, .hello:
+            case .battery, .bluetooth, .hello, .focus, .download, .agentDone:
                 hideWork?.cancel()
                 flash = nil
             case .timerExpired:
                 TimersStore.shared.dismissExpired()
             case .hud:
                 break
-            case .media, .tray, .calendar, .updateAvailable:
+            case .media, .tray, .calendar, .updateAvailable, .privacy, .agent, .pomodoro, .keepAwake:
                 if let kind = activity.kind { dismissed[kind] = Self.signature(of: activity) }
             }
         }
     }
 
     var hasDismissed: Bool { !dismissed.isEmpty }
+
+    /// A swiped-away activity that has since ended (camera off, keep-awake stopped…) shows again next time.
+    private func forgetEnded(_ active: [LiveActivity]) {
+        let ended = dismissed.keys.filter { kind in !active.contains { $0.kind == kind } }
+        guard !ended.isEmpty else { return }
+        // Called while SwiftUI reads the notch: change state after this pass, not during it.
+        DispatchQueue.main.async { [weak self] in ended.forEach { self?.dismissed[$0] = nil } }
+    }
 
     func unhideAll() {
         withAnimation(.notchOpen) { dismissed = [:] }
@@ -121,7 +150,14 @@ final class ActivityCenter {
             return "\(event?.title ?? "")|\(event?.start.timeIntervalSince1970 ?? 0)"
         case .updateAvailable:
             return Updater.shared.available?.version ?? ""
-        case .battery, .bluetooth, .timerExpired, .hello, .hud:
+        case let .privacy(camera, microphone):
+            return "\(camera)|\(microphone)"
+        case let .agent(session, count):
+            return "\(session.id)|\(session.state)|\(count)"
+        case .pomodoro:
+            let state = PomodoroStore.shared.state
+            return "\(state.phase)|\(state.waiting)"
+        case .battery, .bluetooth, .timerExpired, .hello, .hud, .focus, .download, .agentDone, .keepAwake:
             return ""
         }
     }
@@ -204,8 +240,7 @@ struct GlanceLine: View {
             switch activity {
             case .media:
                 if let info = MediaManager.shared.nowPlaying {
-                    Text(info.title).fontWeight(.semibold)
-                    if !info.artist.isEmpty { Text("— \(info.artist)").foregroundStyle(.secondary) }
+                    MediaGlance(info: info)
                 }
             case let .tray(count):
                 Text(count == 1 ? "1 file in tray" : "\(count) files in tray")
@@ -234,6 +269,37 @@ struct GlanceLine: View {
                 }
             case let .hud(state):
                 HUDBar(state: state).padding(.horizontal, 10)
+            case let .focus(event):
+                Text(event.name).fontWeight(.semibold)
+                Text(event.on ? "on" : "off").foregroundStyle(.secondary)
+            case let .download(event):
+                Text(event.name).fontWeight(.semibold).truncationMode(.middle)
+                Text("downloaded").foregroundStyle(.secondary)
+            case let .agent(session, count):
+                Text(session.project).fontWeight(.semibold)
+                switch session.state {
+                case .waiting: Text(session.message ?? L("needs your input")).foregroundStyle(.orange)
+                default:
+                    Text(count > 1 ? String(localized: "and \(count - 1) more working") : L("working…"))
+                        .foregroundStyle(.secondary)
+                }
+            case let .agentDone(session):
+                Text(session.project).fontWeight(.semibold)
+                Text("\(session.tool.title) finished").foregroundStyle(.secondary)
+            case let .privacy(camera, microphone):
+                Text(camera && microphone ? L("Camera and microphone in use")
+                     : camera ? L("Camera in use") : L("Microphone in use"))
+            case .pomodoro:
+                let state = PomodoroStore.shared.state
+                Text(state.phase.title).fontWeight(.semibold)
+                Text(state.waiting ? L("ready when you are") : String(localized: "session \(state.round + 1)"))
+                    .foregroundStyle(.secondary)
+            case .keepAwake:
+                if let end = KeepAwake.shared.endsAt {
+                    Text("Awake until \(end.formatted(date: .omitted, time: .shortened))")
+                } else {
+                    Text("Keeping your Mac awake")
+                }
             }
         }
         .font(.system(size: 11))

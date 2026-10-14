@@ -7,11 +7,13 @@ import Testing
     let settings = preferences.settings
     settings.prefs.widgets.firstIndex { $0.kind == .timer }.map { settings.prefs.widgets[$0].units = 4 }
     #expect(settings.placeWidget(.timer, before: .calendar, maxUnits: 20))
-    #expect(settings.prefs.widgets.map(\.kind) == [.media, .timer, .calendar, .todo, .notes, .shortcuts, .mirror, .capture])
+    #expect(settings.prefs.widgets.map(\.kind) == [.media, .timer, .calendar, .todo, .notes, .shortcuts, .mirror, .capture,
+                                                   .pomodoro, .stats, .weather, .colors])
     #expect(settings.prefs.widgets[1].units == 4)
     #expect(settings.prefs.widgets[1].enabled)
     #expect(settings.placeWidget(.timer, maxUnits: 20))
-    #expect(settings.prefs.widgets.map(\.kind) == [.media, .calendar, .todo, .notes, .shortcuts, .mirror, .capture, .timer])
+    #expect(settings.prefs.widgets.map(\.kind) == [.media, .calendar, .todo, .notes, .shortcuts, .mirror, .capture,
+                                                   .pomodoro, .stats, .weather, .colors, .timer])
     #expect(settings.placeWidget(.timer, before: .timer, maxUnits: 20))
     #expect(settings.prefs.widgets.count == WidgetKind.allCases.count)
     settings.removeWidget(.timer)
@@ -43,11 +45,14 @@ import Testing
     preferences.defaults.set(try JSONEncoder().encode(stored), forKey: "prefs")
     let loaded = Settings(defaults: preferences.defaults)
     #expect(Array(loaded.prefs.widgets.prefix(4)) == stored.widgets)
-    #expect(loaded.prefs.widgets.last == Slot(kind: .capture))
+    #expect(loaded.prefs.widgets.first { $0.kind == .capture } == Slot(kind: .capture))
+    // Modules added later arrive switched off, so an update never changes someone's notch.
+    #expect(loaded.prefs.widgets.suffix(4).map(\.kind) == [.pomodoro, .stats, .weather, .colors])
+    #expect(loaded.prefs.widgets.suffix(4).allSatisfy { !$0.enabled })
     #expect(loaded.prefs.widgets.filter(\.enabled).map(\.kind) == [.todo, .timer, .calendar, .capture])
 }
 
-@Test(arguments: [WidgetKind.notes, .shortcuts, .mirror])
+@Test(arguments: [WidgetKind.notes, .shortcuts, .mirror, .pomodoro, .stats, .weather, .colors])
 func newModulesCanBePlacedWithoutEnablingOtherOptionalModules(kind: WidgetKind) {
     let preferences = TestPreferences()
     let settings = preferences.settings

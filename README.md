@@ -6,7 +6,7 @@
 
 <p align="center">
   <b>Your MacBook notch, but alive.</b><br>
-  A clean, open-source, Dynamic Island–style notch for macOS: music, calendar, timers, a file tray and live activities, all with springy Apple-like animations.
+  A clean, open-source, Dynamic Island–style notch for macOS: music with synced lyrics, calendar, timers, a file tray, clipboard history, weather and live activities, all with springy Apple-like animations.
 </p>
 
 <p align="center">
@@ -47,8 +47,14 @@ The closed notch widens to show what's going on, then tucks itself away.
 | ⏱️ **Timer Done** | A ringing timer with a Stop button. |
 | ⬇️ **New Update** | A new release is out: one click downloads it, swaps the app and relaunches. |
 | 🗂️ **Tray** | How many files are waiting in your tray. |
+| 🌙 **Focus** | Turning a Focus on or off flashes its own icon and color, like on iPhone (needs Full Disk Access, see below). |
+| 🎥 **Camera & Mic** | A green or orange dot while any app uses your camera or microphone. |
+| 🧠 **Focus Timer** | The Pomodoro phase and time left; a play button when the next phase is ready. |
+| ✨ **Coding Agents** | Claude Code or Codex is working, needs your input, or has finished. Click to jump back to the terminal. |
+| ⬇️ **Downloads** | A download just finished: show it in Finder or drop it in the tray (off until you turn it on). |
+| ☕ **Keep Awake** | Your Mac is being kept awake, with the time left. Click to stop. |
 
-- **Glance**: point at an activity and a line of details slides out below it (song title, event time, battery estimate…).
+- **Glance**: point at an activity and a line of details slides out below it (song title or the lyric being sung, event time, battery estimate…).
 - **Your priorities**: drag activities to choose which one wins when several are active.
 - **Swipe up** to tuck an activity away. It comes back on its own when there's news.
 - **Fullscreen aware**: pick which activities may appear over fullscreen apps.
@@ -56,10 +62,17 @@ The closed notch widens to show what's going on, then tucks itself away.
 ### Widgets
 Click the notch (or swipe down) to open it.
 
-- **Media player**: artwork, controls, draggable progress bar.
+- **Media player**: artwork, controls, draggable progress bar, **synced lyrics** (from the free LRCLIB database) and a **sound output switcher** with a volume slider.
 - **Calendar**: today's events.
-- **To-do list**.
+- **To-do list**: its own tasks, or **synced with an Apple Reminders list** so they follow you to your iPhone.
 - **Timers**: scroll wheels with haptic ticks, several timers at once, saved across restarts.
+- **Focus Timer**: Pomodoro cycles of focus and breaks, with a long break every few rounds and a count of today's sessions.
+- **Notes**: rich text or code notes with syntax colors.
+- **Shortcuts**: run your Shortcuts in one click.
+- **Mirror**: a quick look at yourself before a call.
+- **System**: CPU, graphics, memory, disk and network at a glance, with live graphs when it's wide enough.
+- **Weather**: now and the next hours, from Open-Meteo (no account, only the place's coordinates are sent).
+- **Color Picker**: an eyedropper for any pixel on any screen, copied as HEX, RGB, HSL, SwiftUI or NSColor, with a history of swatches.
 - **Capture**: take a screenshot of an area or window, or record your screen. Finished PNG images and MOV videos go straight into the tray, which opens with the new file selected.
 
 The open notch defaults to **Compact**, with tighter widget spacing and less empty height. Choose **Roomy** in Settings → Widgets for the larger layout. Widgets are sized in units (1U = 90 pt in Compact, 100 pt in Roomy). The notch grows to fit what you enabled and never takes more than 75% of the screen.
@@ -75,7 +88,22 @@ Drag anything to the top of the screen and the notch opens into two drop zones: 
 - **AirDrop**: drop files, links or text and the AirDrop window opens straight away to pick a nearby device.
 - Finder-style shortcuts: multi-select, Space for Quick Look, ⌘C, Delete, Return to rename.
 - **Clear All**: the trash button in the tray's corner (click twice to confirm) or ⇧⌘⌫ empties the tray.
+- **Right-click a file for more**: compress to zip or expand one, convert images to PNG, JPEG or HEIC, make them smaller for mail, remove the background, combine images or PDFs into one PDF, or copy the text in an image. Results land in the tray; originals are never changed.
 - Choose where tray files live, copy or move on drop, auto-clear old files. Removed files go to the Trash, never straight to oblivion.
+
+### Clipboard history
+Everything you copy appears in the notch's **Clipboard** tab: text, links, images and files, newest first. **⇧⌘V** opens it from anywhere; use ← → and Return to paste it back into the app you were in.
+
+- Search finds words inside copied screenshots too (Live Text).
+- Pin what you reuse; pinned items survive clearing.
+- Drag a card out, open links, add items to the tray.
+- Passwords stay out: anything an app marks as secret is skipped, and so are password managers (add your own apps to the list).
+- Everything stays on your Mac, in Application Support.
+
+### More in the notch
+- **Volume, brightness and keyboard backlight** show in the notch instead of the macOS overlay (Settings → General).
+- **Keep awake**: the cup in the open notch keeps your Mac (and its display) from sleeping, for a while or until you stop it.
+- **Coding agents**: Settings → Live Activities → Coding Agents connects Claude Code and Codex with one click. It adds a tiny hook to their config (with a backup) that drops event files into Notchd's folder; nothing leaves your Mac.
 
 ### Make it yours
 
@@ -125,8 +153,14 @@ notchd only asks for what a feature needs, the first time it needs it:
 | Permission | Used for |
 |---|---|
 | Calendars | Calendar widget and live activity |
+| Reminders | To-do list synced with a Reminders list |
 | Bluetooth | Device connect/disconnect activity |
 | Screen Recording | Screenshots and screen recordings saved to the tray |
+| Camera | Mirror widget |
+| Location | Weather for where you are (or pick a city instead) |
+| Downloads folder | Download finished activity |
+| Accessibility | Pasting from the clipboard history into other apps |
+| Full Disk Access | Focus activity: macOS keeps Focus status in a protected folder |
 
 Now Playing works without any permission through [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter).
 
@@ -162,6 +196,9 @@ Sources/Notchd/
   NotchView.swift       the notch shape and its states
   LiveActivities.swift  activity priority, Glance, fullscreen detection
   Media / Calendar (Widgets) / Timer / Tray / Bluetooth / Battery .swift
+  Clipboard / Pomodoro / Stats / Weather / Lyrics / ColorPicker .swift
+  Focus / Privacy / Downloads / Agents / KeepAwake / AudioDevices .swift
+  TrayActions.swift     zip, image conversion, background removal, PDFs
   Grid.swift            unit-based widget layout
   Settings.swift        preferences (one JSON blob) and the Settings window
   Welcome.swift         first-launch tour

@@ -14,28 +14,38 @@ extension SlotKind {
 
 enum ActivityKind: String, SlotKind {
     // Default priority: short events first (they flash for a few seconds), long-lived ones after.
-    case bluetooth, battery, timerExpired, updateAvailable, calendar, media, tray
+    case bluetooth, battery, timerExpired, focus, download, agent, updateAvailable, calendar, privacy, pomodoro, media,
+         keepAwake, tray
     var id: Self { self }
     var title: String {
         L(["media": "Media", "tray": "Tray", "calendar": "Calendar", "bluetooth": "Bluetooth",
-         "battery": "Battery", "timerExpired": "Timer Done", "updateAvailable": "New Update"][rawValue]!)
+         "battery": "Battery", "timerExpired": "Timer Done", "updateAvailable": "New Update", "focus": "Focus",
+         "download": "Downloads", "agent": "Coding Agents", "privacy": "Camera & Mic", "pomodoro": "Focus Timer",
+         "keepAwake": "Keep Awake"][rawValue]!)
     }
     var icon: String {
         ["media": "music.note", "tray": "tray.fill", "calendar": "calendar", "bluetooth": "headphones",
-         "battery": "bolt.fill", "timerExpired": "timer", "updateAvailable": "arrow.down.circle.fill"][rawValue]!
+         "battery": "bolt.fill", "timerExpired": "timer", "updateAvailable": "arrow.down.circle.fill", "focus": "moon.fill",
+         "download": "arrow.down.circle", "agent": "sparkle", "privacy": "video.fill", "pomodoro": "brain.head.profile",
+         "keepAwake": "cup.and.heat.waves.fill"][rawValue]!
     }
+    /// Downloads reads a folder macOS protects, so it waits until you turn it on.
+    var defaultEnabled: Bool { self != .download }
 }
 
 enum WidgetKind: String, SlotKind {
-    case media, calendar, todo, timer, notes, shortcuts, mirror, capture
+    case media, calendar, todo, timer, notes, shortcuts, mirror, capture, pomodoro, stats, weather, colors
     var id: Self { self }
     var title: String {
         L(["media": "Media Player", "calendar": "Calendar", "todo": "To-do List", "timer": "Timer", "notes": "Notes",
-         "shortcuts": "Shortcuts", "mirror": "Mirror", "capture": "Capture"][rawValue]!)
+         "shortcuts": "Shortcuts", "mirror": "Mirror", "capture": "Capture", "pomodoro": "Focus Timer",
+         "stats": "System", "weather": "Weather", "colors": "Color Picker"][rawValue]!)
     }
     var icon: String {
         ["media": "music.note", "calendar": "calendar", "todo": "checklist", "timer": "timer", "notes": "note.text",
-         "shortcuts": "square.stack.3d.up.fill", "mirror": "web.camera.fill", "capture": "camera.viewfinder"][rawValue]!
+         "shortcuts": "square.stack.3d.up.fill", "mirror": "web.camera.fill", "capture": "camera.viewfinder",
+         "pomodoro": "brain.head.profile", "stats": "gauge.with.dots.needle.50percent", "weather": "cloud.sun.fill",
+         "colors": "eyedropper.halffull"][rawValue]!
     }
     /// Enabled by default: media, calendar, to-do and capture.
     var defaultEnabled: Bool { [.media, .calendar, .todo, .capture].contains(self) }
@@ -50,7 +60,7 @@ enum FullscreenMode: String, Codable, CaseIterable, Identifiable {
 enum OpenNotchSize: String, Codable, CaseIterable, Identifiable {
     case compact, roomy
     var id: Self { self }
-    var title: String { self == .compact ? "Compact" : "Roomy" }
+    var title: String { self == .compact ? L("Compact") : L("Roomy") }
 }
 
 enum MediaEffect: String, Codable, CaseIterable, Identifiable {
@@ -69,9 +79,17 @@ struct Slot<Kind: SlotKind>: Codable, Equatable {
 
     static var all: [Slot] { Kind.allCases.map { Slot(kind: $0, enabled: $0.defaultEnabled) } }
 
-    /// Keeps the user's order and appends kinds added in newer versions.
+    /// Keeps the user's order and adds kinds from newer versions where they sit by default: before the
+    /// first kind that comes after them. (Appending would rank a new activity below Tray, which is almost
+    /// always active, so it would never show.)
     static func normalized(_ slots: [Slot]) -> [Slot] {
-        slots + all.filter { new in !slots.contains { $0.kind == new.kind } }
+        let order = Array(Kind.allCases)
+        var result = slots
+        for (rank, kind) in order.enumerated() where !result.contains(where: { $0.kind == kind }) {
+            let position = result.firstIndex { (order.firstIndex(of: $0.kind) ?? 0) > rank } ?? result.endIndex
+            result.insert(Slot(kind: kind, enabled: kind.defaultEnabled), at: position)
+        }
+        return result
     }
 }
 
@@ -124,6 +142,7 @@ struct Prefs: Codable, Equatable {
     var hudEnabled = false
     var hudAllScreens = false
     var hudColoredVolume = true
+    var hudKeyboard = true
     // Calendar widget
     var calendarHidden: [String] = []  // calendar identifiers left out
     var calendarShowAllDay = true
@@ -132,9 +151,16 @@ struct Prefs: Codable, Equatable {
     // To-do widget
     var todoShowCompleted = true
     var todoClearAfterDays = 7.0       // 0 = keep forever
+    var todoRemindersList: String?     // Reminders list identifier, nil = the widget's own tasks
     // Timer widget
     var timerShowSeconds = true
     var timerPlaySound = true
+    // Focus timer (Pomodoro), minutes
+    var pomodoroWork = 25.0
+    var pomodoroShortBreak = 5.0
+    var pomodoroLongBreak = 15.0
+    var pomodoroRounds = 4.0
+    var pomodoroAutoStart = true
     // Notes widget
     var notesHighlightCode = true
     // Shortcuts widget
@@ -144,6 +170,26 @@ struct Prefs: Codable, Equatable {
     var mirrorFlip = true
     // Media
     var mediaPinnedSource: String?     // bundle ID the widget sticks to
+    var mediaShowLyrics = false        // lyrics instead of title and progress in the widget
+    var lyricsEnabled = true
+    var lyricsInGlance = false
+    // Weather widget
+    var weatherPlace: WeatherPlace?
+    var temperatureUnit = TemperatureUnit.system
+    // Color picker widget
+    var colorFormat = ColorFormat.hex
+    // Clipboard
+    var clipboardEnabled = true
+    var clipboardLimit = 100.0
+    var clipboardShortcut = false      // ⇧⌘V is taken by some apps (VS Code's Markdown preview…)
+    var clipboardPasteOnClick = false
+    var clipboardIgnoredApps = ClipboardStore.defaultIgnoredApps
+    // Keep awake
+    var keepAwakeDisplay = true
+    // Downloads activity
+    var downloadsFolder: String?       // nil = ~/Downloads
+    // Coding agents activity
+    var agentSound = false
     // Media live activity
     var mediaEffect = MediaEffect.spectrograph
     var coloredEffects = true
@@ -234,7 +280,7 @@ final class SettingsWindowController {
     static let shared = SettingsWindowController()
     private var window: NSWindow?
 
-    enum Pane: Int { case general, gestures, liveActivities, widgets, tray, about }
+    enum Pane: Int { case general, gestures, liveActivities, widgets, tray, clipboard, about }
     /// Sub-tab ("General" / "Customize") the next window opens on.
     fileprivate static var subTab = UserDefaults.standard.integer(forKey: "debugSubTab")
 
@@ -257,6 +303,7 @@ final class SettingsWindowController {
                 ("Live Activities", "clock.badge.fill", AnyView(LiveActivitiesPane())),
                 ("Widgets", "rectangle.topthird.inset.filled", AnyView(NookPane())),
                 ("Tray", "tray.fill", AnyView(TrayPane())),
+                ("Clipboard", "doc.on.clipboard.fill", AnyView(ClipboardPane())),
                 ("About", "ellipsis.circle.fill", AnyView(AboutPane())),
             ]
             for (title, icon, view) in panes {
@@ -346,10 +393,17 @@ private struct GeneralPane: View {
                         Caption("Replaces the macOS overlay while the keys are pressed. Brightness works on the built-in display.")
                     }
                     Group {
+                        Toggle("Keyboard backlight too", isOn: $settings.prefs.hudKeyboard)
                         Toggle("On every screen", isOn: $settings.prefs.hudAllScreens)
                         Toggle("Warn near full volume (orange, then red)", isOn: $settings.prefs.hudColoredVolume)
                     }
                     .disabled(!settings.prefs.hudEnabled)
+                }
+            }
+            LabeledContent("Keep awake:") {
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("Keep the display on too", isOn: $settings.prefs.keepAwakeDisplay)
+                    Caption("The cup in the open notch keeps your Mac from sleeping. When this is off, the screen may still turn off.")
                 }
             }
             LabeledContent("Inner spacing:") {
@@ -522,6 +576,15 @@ private struct CustomizeActivities: View {
                 case .media: MediaActivityOptions()
                 case .calendar: CalendarActivityOptions()
                 case .battery: BatteryActivityOptions()
+                case .focus: FocusActivityOptions()
+                case .download: DownloadsActivityOptions()
+                case .agent: AgentActivityOptions()
+                case .privacy:
+                    Caption("Shows while any app uses your camera or microphone, like the dots in the menu bar. The Mirror widget doesn't count.")
+                case .pomodoro:
+                    Caption("Shows while a focus session or break runs. Set the lengths in Widgets › Layout › Focus Timer.")
+                case .keepAwake:
+                    Caption("Shows while your Mac is kept awake, with the time left. Click it to stop.")
                 case .tray, .bluetooth, .timerExpired, .updateAvailable: Caption("Nothing to configure here.")
                 }
             }
@@ -552,6 +615,12 @@ private struct ActivityPreview: View {
                     case .timerExpired: TimerActivityLeading()
                     case .updateAvailable: UpdateActivityLeading()
                     case .battery: BatteryActivityLeading(percent: 82, state: .plugged)
+                    case .focus: FocusActivityLeading(event: .sample)
+                    case .download: DownloadActivityLeading(event: .sample)
+                    case .agent: AgentActivityLeading(session: .sample)
+                    case .privacy: PrivacyActivityLeading(camera: true, microphone: true)
+                    case .pomodoro: PomodoroActivityLeading()
+                    case .keepAwake: KeepAwakeActivityLeading()
                     }
                 }
                 .frame(width: NotchModel.activitySide)
@@ -565,6 +634,12 @@ private struct ActivityPreview: View {
                     case .timerExpired: TimerActivityTrailing()
                     case .updateAvailable: UpdateActivityTrailing()
                     case .battery: BatteryActivityTrailing(percent: 82, state: .plugged)
+                    case .focus: FocusActivityTrailing(event: .sample)
+                    case .download: DownloadActivityTrailing(event: .sample)
+                    case .agent: AgentActivityTrailing(session: .sample)
+                    case .privacy: PrivacyActivityTrailing(camera: true, microphone: true)
+                    case .pomodoro: PomodoroActivityTrailing()
+                    case .keepAwake: Image(systemName: "infinity").foregroundStyle(.orange)
                     }
                 }
                 .frame(width: NotchModel.activitySide)
@@ -737,6 +812,7 @@ struct WidgetOptions: View {
         case .calendar:
             CalendarWidgetOptions()
         case .todo:
+            RemindersListPicker()
             Toggle("Show completed tasks", isOn: $settings.prefs.todoShowCompleted)
             LabeledContent("Remove completed after:") {
                 HStack {
@@ -766,7 +842,252 @@ struct WidgetOptions: View {
                 }
             }
             Caption("When several players are open, their icons show in the widget's corner. Click one to stick to it.")
+            Toggle("Synced lyrics", isOn: $settings.prefs.lyricsEnabled)
+            Toggle("Sing along in the Glance", isOn: $settings.prefs.lyricsInGlance)
+                .disabled(!settings.prefs.lyricsEnabled)
+            Caption("The speech-bubble button swaps the song info for lyrics, from the free LRCLIB database. The speaker button picks where sound plays.")
+            Caption("Song titles are sent to LRCLIB only while lyrics are shown.")
+        case .pomodoro:
+            PomodoroOptions()
+        case .stats:
+            Caption("CPU, graphics, memory, disk and network, every two seconds while it's in the notch. Make it 3U or wider for live graphs. Click it to open Activity Monitor.")
+        case .weather:
+            WeatherOptions()
+        case .colors:
+            Picker("Copy as:", selection: $settings.prefs.colorFormat) {
+                ForEach(ColorFormat.allCases) { Text($0.title).tag($0) }
+            }
+            Caption("Click the eyedropper, then any pixel on any screen. Click a swatch to copy it again; right-click for other formats.")
         }
+    }
+}
+
+private struct PomodoroOptions: View {
+    @Bindable private var settings = Settings.shared
+
+    var body: some View {
+        minutes("Focus:", $settings.prefs.pomodoroWork, 5...90)
+        minutes("Short break:", $settings.prefs.pomodoroShortBreak, 1...30)
+        minutes("Long break:", $settings.prefs.pomodoroLongBreak, 5...60)
+        LabeledContent("Long break after:") {
+            Stepper("\(Int(settings.prefs.pomodoroRounds)) sessions", value: $settings.prefs.pomodoroRounds, in: 2...8)
+        }
+        Toggle("Start the next phase by itself", isOn: $settings.prefs.pomodoroAutoStart)
+        Caption("A chime marks the end of each phase when \"Chime when done\" is on in the Timer's options.")
+            .onChange(of: settings.prefs) { PomodoroStore.shared.durationsChanged() }
+    }
+
+    private func minutes(_ title: LocalizedStringKey, _ value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
+        LabeledContent(title) {
+            HStack {
+                Slider(value: value, in: range, step: 1)
+                Text("\(Int(value.wrappedValue)) min").monospacedDigit().frame(width: 48, alignment: .trailing)
+            }
+        }
+    }
+}
+
+/// Keep the widget's own tasks, or sync them with a Reminders list.
+private struct RemindersListPicker: View {
+    @Bindable private var settings = Settings.shared
+    private var reminders = RemindersStore.shared
+
+    var body: some View {
+        Picker("Tasks:", selection: $settings.prefs.todoRemindersList) {
+            Text("Kept in Notchd").tag(String?.none)
+            if !reminders.lists.isEmpty { Divider() }
+            ForEach(reminders.lists, id: \.calendarIdentifier) { list in
+                Text("Reminders: \(list.title)").tag(String?.some(list.calendarIdentifier))
+            }
+        }
+        .onAppear { reminders.requestAccess() }
+        .onChange(of: settings.prefs.todoRemindersList) { reminders.reload() }
+        .onChange(of: settings.prefs.todoShowCompleted) { reminders.reload() }
+        if reminders.denied {
+            Caption("Reminders access needed: allow it in System Settings › Privacy & Security › Reminders.")
+        }
+    }
+}
+
+private struct FocusActivityOptions: View {
+    private var focus = FocusMonitor.shared
+
+    var body: some View {
+        Form {
+            Caption("Flashes the Focus's icon and color when you turn one on or off, like on iPhone.")
+            if focus.needsAccess {
+                Caption("macOS keeps Focus status in a protected folder: give Notchd Full Disk Access to read it. Notchd reads only the Focus files there.")
+                Button("Open Full Disk Access Settings") { FocusMonitor.openFullDiskAccessSettings() }
+            } else {
+                LabeledContent("Now:") { Text(focus.current?.name ?? L("No Focus")) }
+            }
+        }
+        .onAppear { FocusMonitor.shared.refresh() }
+    }
+}
+
+private struct DownloadsActivityOptions: View {
+    @Bindable private var settings = Settings.shared
+
+    var body: some View {
+        Form {
+            Caption("When a download finishes, the notch shows it for a few seconds: click its icon to show it in Finder, or the tray button to keep it at hand.")
+            LabeledContent("Folder:") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text((settings.prefs.downloadsFolder ?? DownloadsMonitor.defaultFolder.path)
+                        .replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(.callout.monospaced()).lineLimit(1).truncationMode(.middle)
+                    HStack {
+                        Button("Choose…", action: choose)
+                        Button("Reset") { settings.prefs.downloadsFolder = nil }
+                            .disabled(settings.prefs.downloadsFolder == nil)
+                    }
+                }
+            }
+            Caption("Turn it on in the list. macOS asks once to let Notchd see your Downloads folder.")
+        }
+    }
+
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.directoryURL = DownloadsMonitor.defaultFolder
+        if panel.runModal() == .OK, let url = panel.url { settings.prefs.downloadsFolder = url.path }
+    }
+}
+
+private struct AgentActivityOptions: View {
+    @Bindable private var settings = Settings.shared
+    @Local private var claude = AgentHooks.claudeStatus
+    @Local private var codex = AgentHooks.codexStatus
+    @Local private var error: String?
+
+    var body: some View {
+        Form {
+            Caption("See when Claude Code or Codex is working, needs your input, or has finished, without watching the terminal. Click the activity to jump back to it.")
+            row("Claude Code:", status: claude, connect: AgentHooks.connectClaude, disconnect: AgentHooks.disconnectClaude)
+            row("Codex:", status: codex, connect: AgentHooks.connectCodex, disconnect: AgentHooks.disconnectCodex)
+            Toggle("Chime when an agent finishes", isOn: $settings.prefs.agentSound)
+            if let error { Text(error).font(.callout).foregroundStyle(.orange) }
+            Caption("Connect adds a small hook to ~/.claude/settings.json or ~/.codex/config.toml (a backup is kept next to it). It only writes event files into Notchd's own folder.")
+        }
+    }
+
+    private func row(_ title: LocalizedStringKey, status: AgentHooks.Status, connect: @escaping () throws -> Void,
+                     disconnect: @escaping () throws -> Void) -> some View {
+        LabeledContent(title) {
+            HStack {
+                switch status {
+                case .unavailable:
+                    Text("Not installed").foregroundStyle(.secondary)
+                case .connected:
+                    Label("Connected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    Button("Disconnect") { run(disconnect) }
+                case .connectedDifferently:
+                    Text("Uses another notify command").foregroundStyle(.secondary)
+                case .notInstalled:
+                    Button("Connect") { run(connect) }
+                }
+            }
+        }
+    }
+
+    private func run(_ action: () throws -> Void) {
+        do {
+            try action()
+            error = nil
+        } catch {
+            self.error = error.localizedDescription
+        }
+        claude = AgentHooks.claudeStatus
+        codex = AgentHooks.codexStatus
+    }
+}
+
+private struct ClipboardPane: View {
+    @Bindable private var settings = Settings.shared
+    @Bindable private var store = ClipboardStore.shared
+    @Local private var accessibility = ClipboardStore.canPaste(prompt: false)
+    @Local private var newApp = ""
+
+    var body: some View {
+        Pane {
+            VStack(alignment: .leading, spacing: 2) {
+                Toggle("Keep a clipboard history", isOn: $settings.prefs.clipboardEnabled)
+                Caption("Everything you copy shows up in the notch's Clipboard tab, searchable, images included. It stays on this Mac.")
+            }
+            Divider().padding(.vertical, 6)
+            Group {
+                LabeledContent("Remember:") {
+                    HStack {
+                        Slider(value: $settings.prefs.clipboardLimit, in: 20...500, step: 10)
+                        Text("\(Int(settings.prefs.clipboardLimit))").monospacedDigit().frame(width: 36)
+                    }
+                }
+                Caption("Older items go first. Pinned items are always kept.")
+                LabeledContent("Shortcut:") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("⇧⌘V opens the history", isOn: $settings.prefs.clipboardShortcut)
+                        Caption("Use ← → to choose, Return to use it, Delete to remove it, Escape to close.")
+                    }
+                }
+                LabeledContent("Clicking an item:") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $settings.prefs.clipboardPasteOnClick) {
+                            Text("Copies it").tag(false)
+                            Text("Pastes it into the app you were using").tag(true)
+                        }
+                        .pickerStyle(.radioGroup)
+                        .labelsHidden()
+                        if settings.prefs.clipboardPasteOnClick, !accessibility {
+                            Caption("Pasting needs Accessibility access, so Notchd can press ⌘V for you.")
+                            Button("Allow Accessibility…") {
+                                accessibility = ClipboardStore.canPaste(prompt: true)
+                            }
+                        }
+                    }
+                }
+                LabeledContent("Never record from:") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(settings.prefs.clipboardIgnoredApps, id: \.self) { id in
+                            HStack {
+                                Text(ClipboardStore.appName(id)).lineLimit(1)
+                                Spacer()
+                                Button {
+                                    settings.prefs.clipboardIgnoredApps.removeAll { $0 == id }
+                                } label: { Image(systemName: "minus.circle") }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        Button("Add App…", action: addApp)
+                        Caption("Password managers are skipped by default, and so is anything an app marks as secret.")
+                    }
+                }
+            }
+            .disabled(!settings.prefs.clipboardEnabled)
+            Divider().padding(.vertical, 6)
+            LabeledContent("History:") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(store.items.count) items").foregroundStyle(.secondary)
+                    HStack {
+                        Button("Clear (keep pinned)") { store.clear() }
+                        Button("Clear Everything") { store.clear(includingPinned: true) }
+                    }
+                    .disabled(store.items.isEmpty)
+                }
+            }
+        }
+        .onAppear { accessibility = ClipboardStore.canPaste(prompt: false) }
+    }
+
+    private func addApp() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK, let url = panel.url, let id = Bundle(url: url)?.bundleIdentifier,
+              !settings.prefs.clipboardIgnoredApps.contains(id) else { return }
+        settings.prefs.clipboardIgnoredApps.append(id)
     }
 }
 

@@ -541,6 +541,10 @@ struct TrayView: View {
         )
         .overlay(alignment: .topTrailing) {
             HStack(spacing: 4) {
+                if TrayActions.shared.working > 0 {
+                    ProgressView().controlSize(.mini).frame(width: 24, height: 20)
+                        .help(Text("Working on it…"))
+                }
                 if !store.files.isEmpty {
                     clearButton.transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
@@ -700,6 +704,7 @@ struct TrayFileView: View {
         if targets.count == 1 { menu.add(String(localized: "Rename")) { store.renaming = url } }
         menu.add(String(localized: "Copy")) { store.copyToPasteboard(targets) }
         menu.add(String(localized: "Send via AirDrop")) { AirDrop.send(targets) }
+        TrayActions.shared.addItems(to: menu, for: targets)
         menu.addItem(.separator())
         menu.add(targets.count == 1 ? String(localized: "Remove from Tray")
                                     : String(localized: "Remove \(targets.count) Items from Tray")) {
@@ -773,6 +778,7 @@ struct TrayStackView: View {
         menu.add(String(localized: "Copy")) { store.copyToPasteboard(urls) }
         menu.add(String(localized: "Send via AirDrop")) { AirDrop.send(urls) }
         if let key { menu.add(String(localized: "Unstack")) { store.unstack(key) } }
+        TrayActions.shared.addItems(to: menu, for: urls)
         menu.addItem(.separator())
         menu.add(String(localized: "Remove \(urls.count) Items from Tray")) { store.remove(urls) }
         return menu

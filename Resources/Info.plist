@@ -24,5 +24,9 @@
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleAllowMixedLocalizations</key><true/>
     <key>NSCalendarsFullAccessUsageDescription</key><string>Notchd shows your upcoming events in the calendar widget.</string>
+    <key>NSRemindersFullAccessUsageDescription</key><string>Notchd can sync the to-do widget with a Reminders list you choose.</string>
+    <key>NSLocationUsageDescription</key><string>The Weather widget uses your approximate location to show the local forecast.</string>
+    <key>NSLocationWhenInUseUsageDescription</key><string>The Weather widget uses your approximate location to show the local forecast.</string>
+    <key>NSDownloadsFolderUsageDescription</key><string>Notchd shows when a download finishes, so you can open it or drop it in the tray.</string>
 </dict>
 </plist>

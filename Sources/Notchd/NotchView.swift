@@ -118,6 +118,12 @@ struct NotchView: View {
         .animation(.notchOpen, value: model.openSize)
         .animation(.notchClose, value: model.hiddenByFullscreen)
         .contextMenu {
+            Menu("Keep Awake") {
+                if KeepAwake.shared.isOn { Button("Turn Off") { KeepAwake.shared.turnOff() } }
+                ForEach(KeepAwake.durations, id: \.self) { minutes in
+                    Button(KeepAwake.title(minutes: minutes)) { KeepAwake.shared.turnOn(minutes: minutes) }
+                }
+            }
             Button("Settings…") { SettingsWindowController.shared.show() }
             Divider()
             Button("Quit Notchd") { NSApp.terminate(nil) }
@@ -194,6 +200,18 @@ struct ActivityView: View {
             BatteryActivityLeading(percent: percent, state: state)
         case let .hud(state):
             HUDLeading(state: state)
+        case let .focus(event):
+            FocusActivityLeading(event: event)
+        case let .download(event):
+            DownloadActivityLeading(event: event)
+        case let .agent(session, _), let .agentDone(session):
+            AgentActivityLeading(session: session)
+        case let .privacy(camera, microphone):
+            PrivacyActivityLeading(camera: camera, microphone: microphone)
+        case .pomodoro:
+            PomodoroActivityLeading()
+        case .keepAwake:
+            KeepAwakeActivityLeading()
         }
     }
 
@@ -226,6 +244,20 @@ struct ActivityView: View {
             BatteryActivityTrailing(percent: percent, state: state)
         case let .hud(state):
             HUDTrailing(state: state)
+        case let .focus(event):
+            FocusActivityTrailing(event: event)
+        case let .download(event):
+            DownloadActivityTrailing(event: event)
+        case let .agent(session, count):
+            AgentActivityTrailing(session: session, count: count)
+        case let .agentDone(session):
+            AgentActivityTrailing(session: session)
+        case let .privacy(camera, microphone):
+            PrivacyActivityTrailing(camera: camera, microphone: microphone)
+        case .pomodoro:
+            PomodoroActivityTrailing()
+        case .keepAwake:
+            KeepAwakeActivityTrailing()
         }
     }
 }
@@ -243,6 +275,8 @@ struct OpenNotchView: View {
                     DropZonesView(model: model)
                 } else if model.tab == .nook {
                     NookView(model: model)
+                } else if model.tab == .clipboard {
+                    ClipboardView(model: model)
                 } else {
                     TrayView(model: model)
                 }
@@ -264,6 +298,7 @@ struct OpenNotchView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Color.clear.frame(width: model.headerNotchWidth)
             HStack(spacing: 6) {
+                KeepAwakeButton()
                 Button {
                     model.close()
                     SettingsWindowController.shared.show()
@@ -297,6 +332,9 @@ struct OpenNotchView: View {
         HStack(spacing: 6) {
             tabButton(.nook, icon: "house.fill", title: "Home", iconOnly: iconOnly)
             tabButton(.tray, icon: "tray.fill", title: "Tray", iconOnly: iconOnly)
+            if Settings.shared.prefs.clipboardEnabled {
+                tabButton(.clipboard, icon: "doc.on.clipboard.fill", title: "Clipboard", iconOnly: iconOnly)
+            }
         }
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -417,6 +455,10 @@ struct NookView: View {
         case .shortcuts: ShortcutsWidget()
         case .mirror: MirrorWidget(model: model)
         case .capture: CaptureWidget(model: model)
+        case .pomodoro: PomodoroWidget()
+        case .stats: StatsWidget()
+        case .weather: WeatherWidget()
+        case .colors: ColorPickerWidget()
         }
     }
 }

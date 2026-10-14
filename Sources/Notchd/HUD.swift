@@ -99,10 +99,38 @@ enum Brightness {
     }
 }
 
+// MARK: - Keyboard backlight
+
+/// Keyboard backlight level through the private CoreBrightness KeyboardBrightnessClient, loaded at runtime.
+enum KeyboardBacklight {
+    private typealias Get = @convention(c) (AnyObject, Selector, UInt64) -> Float
+    private static let client: NSObject? = {
+        guard dlopen("/System/Library/PrivateFrameworks/CoreBrightness.framework/CoreBrightness", RTLD_NOW) != nil,
+              let type = NSClassFromString("KeyboardBrightnessClient") as? NSObject.Type else { return nil }
+        let client = type.init()
+        let needed = ["brightnessForKeyboard:", "copyKeyboardBacklightIDs"].map(NSSelectorFromString)
+        return needed.allSatisfy(client.responds(to:)) ? client : nil
+    }()
+
+    private static let keyboard: UInt64? = {
+        guard let client, let ids = client.perform(NSSelectorFromString("copyKeyboardBacklightIDs"))?
+            .takeRetainedValue() as? [NSNumber] else { return nil }
+        return ids.first?.uint64Value
+    }()
+
+    /// 0...1, nil on Macs without a backlit keyboard (or if the API went away).
+    static func current() -> Double? {
+        guard let client, let keyboard else { return nil }
+        let selector = NSSelectorFromString("brightnessForKeyboard:")
+        let get = unsafeBitCast(client.method(for: selector), to: Get.self)
+        return Double(get(client, selector, keyboard))
+    }
+}
+
 // MARK: - HUD
 
 struct HUDState: Equatable {
-    enum Kind { case volume, brightness }
+    enum Kind { case volume, brightness, keyboard }
     var kind: Kind
     var level: Double
     var muted = false
@@ -119,6 +147,7 @@ final class HUDCenter {
     private var hideWork: DispatchWorkItem?
     private var brightnessTimer: Timer?
     private var lastBrightness: Double?
+    private var lastKeyboard: Double?
     private var suppressTimer: Timer?
 
     func start() {
@@ -142,9 +171,11 @@ final class HUDCenter {
             Self.systemOverlay(paused: true)
             if brightnessTimer == nil {
                 lastBrightness = Brightness.current()
+                lastKeyboard = KeyboardBacklight.current()
                 // ponytail: 5 Hz sampling; swap for a key event tap if it ever costs anything measurable.
                 brightnessTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
                     self?.sampleBrightness()
+                    self?.sampleKeyboard()
                 }
             }
             // macOS relaunches the overlay helper now and then: pause it again.
@@ -179,6 +210,20 @@ final class HUDCenter {
         // Keys move brightness in big steps; auto-brightness drifts slowly. Only show the former.
         if abs(value - last) >= 0.02 || (state?.kind == .brightness && abs(value - last) > 0.001) {
             show(HUDState(kind: .brightness, level: value))
+        }
+    }
+
+    /// The system overlay is paused while ours is on, so the keyboard backlight needs its own too.
+    private func sampleKeyboard() {
+        guard Settings.shared.prefs.hudKeyboard, let value = KeyboardBacklight.current() else { return }
+        defer { lastKeyboard = value }
+        guard let last = lastKeyboard else { return }
+        // The backlight also fades out by itself when you stop typing: only show changes you just made.
+        let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+        guard idle < 2 else { return }
+        // Ambient light dims it slowly on its own; key presses move it in steps.
+        if abs(value - last) >= 0.03 || (state?.kind == .keyboard && abs(value - last) > 0.001) {
+            show(HUDState(kind: .keyboard, level: value))
         }
     }
 
@@ -231,6 +276,7 @@ struct HUDLeading: View {
     private var icon: String {
         switch state.kind {
         case .brightness: state.level < 0.5 ? "sun.min.fill" : "sun.max.fill"
+        case .keyboard: state.level == 0 ? "light.min" : "light.max"
         case .volume:
             if state.muted || state.level == 0 { "speaker.slash.fill" }
             else if state.level < 0.33 { "speaker.wave.1.fill" }
@@ -273,6 +319,7 @@ struct HUDBar: View {
 
     private func color(_ level: Double) -> Color {
         if state.kind == .brightness { return .yellow }
+        if state.kind == .keyboard { return .cyan }
         guard Settings.shared.prefs.hudColoredVolume else { return .white }
         return level > 0.9 ? .red : level > 0.7 ? .orange : .white
     }

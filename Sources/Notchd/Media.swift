@@ -215,6 +215,7 @@ final class MediaManager {
         let wasPlaying = nowPlaying?.playing ?? false
         let songChanged = info != nil && nowPlaying != nil && (info?.title != nowPlaying?.title || info?.artist != nowPlaying?.artist)
         nowPlaying = info
+        LyricsStore.shared.trackChanged(info)
         if songChanged, info?.playing == true, Settings.shared.prefs.peekOnSongChange { ActivityCenter.shared.peek() }
         let playing = info?.playing ?? false
 
@@ -423,6 +424,10 @@ struct MediaWidget: View {
     private var media = MediaManager.shared
     @Local private var scrubbing: Double?
 
+    private var showingLyrics: Bool {
+        Settings.shared.prefs.lyricsEnabled && Settings.shared.prefs.mediaShowLyrics
+    }
+
     var body: some View {
         let info = media.nowPlaying
         Group {
@@ -430,14 +435,20 @@ struct MediaWidget: View {
                 HStack(spacing: 12) {
                     artwork(info)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(info.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .lineLimit(1)
-                        Text(info.artist.isEmpty ? " " : info.artist)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        if info.duration > 0 { progress(info) }
+                        if showingLyrics {
+                            LyricsView(info: info)
+                                .frame(maxHeight: .infinity)
+                                .transition(.blurPop)
+                        } else {
+                            Text(info.title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                            Text(info.artist.isEmpty ? " " : info.artist)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            if info.duration > 0 { progress(info) }
+                        }
                         controls(info)
                     }
                 }
@@ -502,14 +513,33 @@ struct MediaWidget: View {
     }
 
     private func controls(_ info: NowPlaying) -> some View {
-        HStack(spacing: 18) {
-            Button(action: media.previous) { Image(systemName: "backward.fill") }
-            Button(action: media.togglePlayPause) {
-                Image(systemName: info.playing ? "pause.fill" : "play.fill")
-                    .contentTransition(.symbolEffect(.replace))
-                    .font(.system(size: 18))
+        HStack(spacing: 0) {
+            if Settings.shared.prefs.lyricsEnabled {
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        Settings.shared.prefs.mediaShowLyrics.toggle()
+                    }
+                    Haptics.tap()
+                } label: {
+                    Image(systemName: showingLyrics ? "quote.bubble.fill" : "quote.bubble")
+                        .font(.system(size: 11))
+                        .foregroundStyle(showingLyrics ? AnyShapeStyle(info.tint) : AnyShapeStyle(.secondary))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .help(showingLyrics ? Text("Hide lyrics") : Text("Show lyrics"))
             }
-            Button(action: media.next) { Image(systemName: "forward.fill") }
+            Spacer(minLength: 4)
+            HStack(spacing: 18) {
+                Button(action: media.previous) { Image(systemName: "backward.fill") }
+                Button(action: media.togglePlayPause) {
+                    Image(systemName: info.playing ? "pause.fill" : "play.fill")
+                        .contentTransition(.symbolEffect(.replace))
+                        .font(.system(size: 18))
+                }
+                Button(action: media.next) { Image(systemName: "forward.fill") }
+            }
+            Spacer(minLength: 4)
+            AudioOutputButton()
         }
         .font(.system(size: 13))
         .buttonStyle(BouncyButtonStyle())

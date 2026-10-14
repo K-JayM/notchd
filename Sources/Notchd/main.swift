@@ -24,9 +24,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = FullscreenMonitor.shared
         Updater.shared.start()
         HUDCenter.shared.start()
+        _ = PomodoroStore.shared
+        applyServices()
+        NotificationCenter.default.addObserver(forName: .prefsChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.applyServices()
+        }
         installMainMenu()
 
-        // Dev: `--args -demo battery|unplugged|full|low|bluetooth|timer|peek|update|install` fires a sample activity.
+        // Dev: `--args -demo battery|unplugged|full|low|bluetooth|timer|peek|update|install|focus|download|agent|agentDone`
+        // fires a sample activity.
         if let demo = UserDefaults.standard.string(forKey: "demo") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                 switch demo {
@@ -40,6 +46,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 case "unplugged": ActivityCenter.shared.show(.battery(percent: 64, state: .unplugged))
                 case "full": ActivityCenter.shared.show(.battery(percent: 100, state: .full))
                 case "low": ActivityCenter.shared.show(.battery(percent: 15, state: .low))
+                case "focus": ActivityCenter.shared.show(.focus(.sample))
+                case "keepAwake": KeepAwake.shared.turnOn(minutes: 30)
+                case "pomodoro": PomodoroStore.shared.toggle()
+                case "download": ActivityCenter.shared.show(.download(DownloadEvent(url: DownloadsMonitor.defaultFolder)), for: 6)
+                case "agent": AgentMonitor.shared.handle(["hook_event_name": "UserPromptSubmit", "session_id": "demo",
+                                                          "cwd": FileManager.default.currentDirectoryPath])
+                case "agentDone": AgentMonitor.shared.handle(["hook_event_name": "Stop", "session_id": "demo",
+                                                              "cwd": FileManager.default.currentDirectoryPath])
                 default: ActivityCenter.shared.show(.battery(percent: 82, state: .plugged))
                 }
             }
@@ -52,9 +66,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 guard let model = self?.controllers.first?.model else { return }
                 model.locked = true
-                if UserDefaults.standard.string(forKey: "debugTab") == "tray" { model.tab = .tray }
+                switch UserDefaults.standard.string(forKey: "debugTab") {
+                case "tray": model.tab = .tray
+                case "clipboard": model.tab = .clipboard
+                default: break
+                }
                 model.open()
             }
+        }
+        // Dev: `-debugSnapshot /path.png [-debugSnapshotDelay 2.5]` saves the notch as an image (no Screen Recording needed).
+        if let path = UserDefaults.standard.string(forKey: "debugSnapshot") {
+            let delay = UserDefaults.standard.object(forKey: "debugSnapshotDelay") as? Double ?? 2.5
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                // With --settings, the Settings window; otherwise the notch.
+                if CommandLine.arguments.contains("--settings"),
+                   let window = NSApp.windows.first(where: { $0.isVisible && $0.contentViewController is NSTabViewController }),
+                   let image = CGWindowListCreateImage(.null, .optionIncludingWindow, CGWindowID(window.windowNumber),
+                                                       [.boundsIgnoreFraming, .bestResolution]) {
+                    try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+                        .write(to: URL(fileURLWithPath: path))
+                } else {
+                    self?.controllers.first?.snapshot(to: path)
+                }
+            }
+        }
+    }
+
+    /// Background features follow their settings: each starts or stops itself as needed.
+    private var lastKeepAwakeDisplay = Settings.shared.prefs.keepAwakeDisplay
+    private func applyServices() {
+        ClipboardStore.shared.apply()
+        ClipboardShortcut.shared.apply()
+        PrivacyMonitor.shared.apply()
+        DownloadsMonitor.shared.apply()
+        FocusMonitor.shared.apply()
+        AgentMonitor.shared.apply()
+        StatsMonitor.shared.apply()
+        WeatherStore.shared.apply()
+        LyricsStore.shared.trackChanged(MediaManager.shared.nowPlaying)  // lyrics just switched on or off
+        let display = Settings.shared.prefs.keepAwakeDisplay
+        if display != lastKeepAwakeDisplay {
+            lastKeepAwakeDisplay = display
+            KeepAwake.shared.settingsChanged()
         }
     }
 
@@ -107,6 +160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        ClipboardStore.shared.save()
+        KeepAwake.shared.turnOff()
         HUDCenter.shared.stop()
         MediaManager.shared.stop()
     }
