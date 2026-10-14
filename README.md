@@ -60,8 +60,13 @@ Click the notch (or swipe down) to open it.
 - **Calendar**: today's events.
 - **To-do list**.
 - **Timers**: scroll wheels with haptic ticks, several timers at once, saved across restarts.
+- **Capture**: take a screenshot of an area or window, or record your screen. Finished PNG images and MOV videos go straight into the tray, which opens with the new file selected.
 
-Widgets are sized in units (1U = 100 pt). The notch grows to fit exactly what you enabled and never takes more than 75% of the screen. Reorder, resize or hide widgets in Settings.
+The open notch defaults to **Compact**, with tighter widget spacing and less empty height. Choose **Roomy** in Settings → Widgets for the larger layout. Widgets are sized in units (1U = 90 pt in Compact, 100 pt in Roomy). The notch grows to fit what you enabled and never takes more than 75% of the screen.
+
+In **Settings → Widgets → Layout**, drag modules from the library into the notch preview or directly onto the notch at the top of your screen. Drag placed modules to reorder them, click × to remove one, and select a module to change its width. Removing and re-adding a module keeps its chosen width. Modules that exceed the screen’s capacity are marked **No room**.
+
+**Screenshot** opens the macOS area selector; press Space to select a window or Escape to cancel. **Record screen** opens the recording controls; choose the area, click Record, then use Stop in the menu bar. The notch hides during capture. If macOS requests Screen Recording access, allow it in System Settings. Captures use your chosen tray folder; if the tray is unavailable, the original stays in Application Support/Notchd/Captures and an alert lets you reveal it in Finder.
 
 ### Tray & drop zone
 Drag anything to the top of the screen and the notch opens into drop zones.
@@ -120,6 +125,7 @@ notchd only asks for what a feature needs, the first time it needs it:
 |---|---|
 | Calendars | Calendar widget and live activity |
 | Bluetooth | Device connect/disconnect activity |
+| Screen Recording | Screenshots and screen recordings saved to the tray |
 
 Now Playing works without any permission through [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter).
 

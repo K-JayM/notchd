@@ -115,6 +115,7 @@ struct NotchView: View {
         .contentShape(NotchShape(topRadius: radii.top, bottomRadius: radii.bottom))
         .onTapGesture { model.open() }
         .opacity(isHiddenHandle(activity) || model.hiddenByFullscreen ? 0 : 1)
+        .animation(.notchOpen, value: model.openSize)
         .animation(.notchClose, value: model.hiddenByFullscreen)
         .contextMenu {
             Button("Settings…") { SettingsWindowController.shared.show() }
@@ -235,7 +236,7 @@ struct OpenNotchView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-                .frame(height: max(model.closedSize.height, 30))
+                .frame(height: model.headerHeight)
             Group {
                 if model.dropping {
                     DropZonesView()
@@ -246,7 +247,7 @@ struct OpenNotchView: View {
                 }
             }
             .padding(.horizontal, Settings.shared.prefs.contentPadding)
-            .padding(.vertical, Settings.shared.prefs.contentPadding * 0.8)
+            .padding(.vertical, model.grid.verticalPadding)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: model.tab)
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: model.dropping)
@@ -254,80 +255,151 @@ struct OpenNotchView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
-            tabButton(.nook, icon: "house.fill", title: "Home")
-            tabButton(.tray, icon: "tray.fill", title: "Tray")
-            Spacer(minLength: model.closedSize.width + 20)
-            Button {
-                model.close()
-                SettingsWindowController.shared.show()
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, height: 22)
-                    .background(Pill().fill(.white.opacity(0.08)))
+        HStack(spacing: 0) {
+            ViewThatFits(in: .horizontal) {
+                tabButtons(iconOnly: false)
+                tabButtons(iconOnly: true)
             }
-            .buttonStyle(BouncyButtonStyle())
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { model.locked.toggle() }
-                Haptics.tap()
-            } label: {
-                Image(systemName: model.locked ? "lock.fill" : "lock.open.fill")
-                    .contentTransition(.symbolEffect(.replace))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(model.locked ? .white : .secondary)
-                    .frame(width: 26, height: 22)
-                    .background(Pill().fill(.white.opacity(model.locked ? 0.2 : 0.08)))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Color.clear.frame(width: model.headerNotchWidth)
+            HStack(spacing: 6) {
+                Button {
+                    model.close()
+                    SettingsWindowController.shared.show()
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 22)
+                        .background(Pill().fill(.white.opacity(0.08)))
+                }
+                .buttonStyle(BouncyButtonStyle())
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { model.locked.toggle() }
+                    Haptics.tap()
+                } label: {
+                    Image(systemName: model.locked ? "lock.fill" : "lock.open.fill")
+                        .contentTransition(.symbolEffect(.replace))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(model.locked ? .white : .secondary)
+                        .frame(width: 26, height: 22)
+                        .background(Pill().fill(.white.opacity(model.locked ? 0.2 : 0.08)))
+                }
+                .buttonStyle(BouncyButtonStyle())
             }
-            .buttonStyle(BouncyButtonStyle())
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 14)
     }
 
-    private func tabButton(_ tab: NotchModel.Tab, icon: String, title: LocalizedStringKey) -> some View {
+    private func tabButtons(iconOnly: Bool) -> some View {
+        HStack(spacing: 6) {
+            tabButton(.nook, icon: "house.fill", title: "Home", iconOnly: iconOnly)
+            tabButton(.tray, icon: "tray.fill", title: "Tray", iconOnly: iconOnly)
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func tabButton(_ tab: NotchModel.Tab, icon: String, title: LocalizedStringKey, iconOnly: Bool) -> some View {
         let selected = model.tab == tab && !model.dropping
         return Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.7)) { model.tab = tab }
         } label: {
-            Label(title, systemImage: icon)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(selected ? .white : .secondary)
-                .padding(.horizontal, 10)
-                .frame(height: 22)
-                .background {
-                    if selected {
-                        Pill().fill(.white.opacity(0.16))
-                            .matchedGeometryEffect(id: "tab", in: tabs)
-                    }
+            Group {
+                if iconOnly {
+                    Image(systemName: icon).frame(width: 26)
+                } else {
+                    Label(title, systemImage: icon).padding(.horizontal, 10)
                 }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(selected ? .white : .secondary)
+            .frame(height: 22)
+            .background {
+                if selected {
+                    Pill().fill(.white.opacity(0.16))
+                        .matchedGeometryEffect(id: "tab", in: tabs)
+                }
+            }
         }
         .buttonStyle(BouncyButtonStyle())
+        .accessibilityLabel(title)
+        .help(title)
     }
 }
 
 struct NookView: View {
     @Bindable var model: NotchModel
+    @Local private var insertionBefore: WidgetKind?
+    @Local private var placementMessage: String?
 
     var body: some View {
         let prefs = Settings.shared.prefs
+        let grid = model.grid
         let shown = model.layout.shown
         HStack(spacing: 0) {
+            if shown.isEmpty {
+                Text("Drag modules here from Settings → Widgets → Layout")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
             ForEach(Array(shown.enumerated()), id: \.element) { index, kind in
                 if index > 0 {
                     if prefs.showDividers {
-                        Divider().overlay(.white.opacity(0.1)).padding(.horizontal, 14)
+                        Divider().overlay(.white.opacity(0.1)).padding(.horizontal, grid.dividerPadding)
                     } else {
-                        Spacer().frame(width: Grid.gap(dividers: false))
+                        Spacer().frame(width: grid.gap(dividers: false))
                     }
                 }
                 widget(kind)
-                    .frame(width: Grid.width(units: units(kind), dividers: prefs.showDividers))
+                    .frame(width: grid.width(units: units(kind), dividers: prefs.showDividers))
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .overlay(alignment: .leading) {
+            if model.arrangingWidgets {
+                RoundedRectangle(cornerRadius: 2).fill(Color.accentColor)
+                    .frame(width: 3)
+                    .offset(x: insertionOffset)
+                    .allowsHitTesting(false)
+            }
+        }
+        .overlay(alignment: .bottom) {
+            if let placementMessage {
+                Text(placementMessage).font(.caption).padding(6)
+                    .background(.black.opacity(0.9), in: RoundedRectangle(cornerRadius: 8))
+                    .allowsHitTesting(false)
+            }
+        }
+        .onDrop(of: [.notchdWidget], delegate: WidgetDropDelegate(hovering: { point in
+            model.arrangingWidgets = point != nil
+            if let point { insertionBefore = target(at: point.x) }
+        }, receive: { kind, point in
+            let added = Settings.shared.placeWidget(kind, before: target(at: point.x), maxUnits: model.maxUnits)
+            placementMessage = added ? nil : "Not enough room. Remove a module or reduce its width in Settings."
+            model.arrangingWidgets = false
+        }))
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: shown)
+    }
+
+    private func target(at x: CGFloat) -> WidgetKind? {
+        var offset: CGFloat = 0
+        let dividers = Settings.shared.prefs.showDividers
+        for kind in model.layout.shown {
+            let width = model.grid.width(units: units(kind), dividers: dividers)
+            if x < offset + width / 2 { return kind }
+            offset += width + model.grid.gap(dividers: dividers)
+        }
+        return nil
+    }
+
+    private var insertionOffset: CGFloat {
+        let dividers = Settings.shared.prefs.showDividers
+        return model.layout.shown.prefix { $0 != insertionBefore }.reduce(CGFloat(0)) {
+            $0 + model.grid.width(units: units($1), dividers: dividers) + model.grid.gap(dividers: dividers)
+        } - (insertionBefore == nil && !model.layout.shown.isEmpty ? model.grid.gap(dividers: dividers) : 0)
     }
 
     private func units(_ kind: WidgetKind) -> Int {
@@ -343,6 +415,7 @@ struct NookView: View {
         case .notes: NotesWidget(model: model)
         case .shortcuts: ShortcutsWidget()
         case .mirror: MirrorWidget(model: model)
+        case .capture: CaptureWidget(model: model)
         }
     }
 }

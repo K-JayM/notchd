@@ -40,3 +40,21 @@ func settingsResetPreservesTrayAcrossRestart(welcomed: Bool) throws {
     #expect(preferences.settings.prefs == Prefs())
     #expect(Settings(defaults: preferences.defaults).prefs == Prefs())
 }
+
+@Test func existingPreferencesAdoptCompactSizeWithoutLosingCustomization() throws {
+    let preferences = TestPreferences()
+    var stored = Prefs()
+    stored.widgets[0].customUnits = 4
+    stored.widgets[1].enabled = false
+    stored.contentPadding = 18
+    stored.trayFolder = "/tmp/custom-tray"
+    var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(stored)) as? [String: Any])
+    json.removeValue(forKey: "openNotchSize")
+    preferences.defaults.set(try JSONSerialization.data(withJSONObject: json), forKey: "prefs")
+
+    let loaded = Settings(defaults: preferences.defaults)
+    #expect(loaded.prefs == stored)
+    #expect(loaded.prefs.openNotchSize == .compact)
+    loaded.prefs.openNotchSize = .roomy
+    #expect(Settings(defaults: preferences.defaults).prefs.openNotchSize == .roomy)
+}

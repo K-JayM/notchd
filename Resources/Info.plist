@@ -12,6 +12,12 @@
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
+    <key>UTExportedTypeDeclarations</key>
+    <array><dict>
+        <key>UTTypeIdentifier</key><string>app.notchd.widget</string>
+        <key>UTTypeDescription</key><string>Notch module</string>
+        <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+    </dict></array>
     <key>NSBluetoothAlwaysUsageDescription</key><string>Notchd shows when your Bluetooth devices connect.</string>
     <key>NSCameraUsageDescription</key><string>The Mirror widget shows your camera so you can check yourself before a call.</string>
     <key>NSAppleEventsUsageDescription</key><string>Notchd controls Music or Spotify when you pin the media widget to them.</string>

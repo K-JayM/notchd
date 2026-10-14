@@ -27,24 +27,30 @@ enum ActivityKind: String, SlotKind {
 }
 
 enum WidgetKind: String, SlotKind {
-    case media, calendar, todo, timer, notes, shortcuts, mirror
+    case media, calendar, todo, timer, notes, shortcuts, mirror, capture
     var id: Self { self }
     var title: String {
         L(["media": "Media Player", "calendar": "Calendar", "todo": "To-do List", "timer": "Timer", "notes": "Notes",
-         "shortcuts": "Shortcuts", "mirror": "Mirror"][rawValue]!)
+         "shortcuts": "Shortcuts", "mirror": "Mirror", "capture": "Capture"][rawValue]!)
     }
     var icon: String {
         ["media": "music.note", "calendar": "calendar", "todo": "checklist", "timer": "timer", "notes": "note.text",
-         "shortcuts": "square.stack.3d.up.fill", "mirror": "web.camera.fill"][rawValue]!
+         "shortcuts": "square.stack.3d.up.fill", "mirror": "web.camera.fill", "capture": "camera.viewfinder"][rawValue]!
     }
-    /// Enabled by default: media, calendar and to-do.
-    var defaultEnabled: Bool { [.media, .calendar, .todo].contains(self) }
+    /// Enabled by default: media, calendar, to-do and capture.
+    var defaultEnabled: Bool { [.media, .calendar, .todo, .capture].contains(self) }
 }
 
 enum FullscreenMode: String, Codable, CaseIterable, Identifiable {
     case allMonitors, notchedScreens, never
     var id: Self { self }
     var title: String { L(["allMonitors": "All screens", "notchedScreens": "Screens with a notch", "never": "Never"][rawValue]!) }
+}
+
+enum OpenNotchSize: String, Codable, CaseIterable, Identifiable {
+    case compact, roomy
+    var id: Self { self }
+    var title: String { self == .compact ? "Compact" : "Roomy" }
 }
 
 enum MediaEffect: String, Codable, CaseIterable, Identifiable {
@@ -147,6 +153,7 @@ struct Prefs: Codable, Equatable {
     var gifOffsetY = 0.0
     var gifPixelPerfect = false
     // Nook
+    var openNotchSize = OpenNotchSize.compact
     var nookEnabled = true
     var showDividers = true
     var widgets = Slot<WidgetKind>.all
@@ -687,10 +694,8 @@ private struct NookPane: View {
     /// Settings preview the built-in (notched) screen, where space is tightest.
     static var referenceMaxUnits: Int {
         let screen = NSScreen.screens.first { $0.notchSize != nil } ?? NSScreen.main
-        return Grid.maxUnits(screenWidth: screen?.frame.width ?? 1440)
+        return Grid(prefs: Settings.shared.prefs).maxUnits(screenWidth: screen?.frame.width ?? 1440)
     }
-    @Local private var selection: WidgetKind?
-
     var body: some View {
         SubTabs(customizeTitle: "Layout") {
             Pane {
@@ -699,40 +704,28 @@ private struct NookPane: View {
                     Caption("When off, the notch only shows live activities.")
                 }
                 Divider().padding(.vertical, 6)
+                LabeledContent("Open notch size:") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Picker("Open notch size", selection: $settings.prefs.openNotchSize) {
+                            ForEach(OpenNotchSize.allCases) { size in
+                                Text(size.title).tag(size)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        Caption("Compact fits the controls closely. Roomy adds space for longer lists.")
+                    }
+                }
                 Toggle("Separators between widgets", isOn: $settings.prefs.showDividers)
             }
         } customize: {
-            let layout = NookLayout.fit(settings.prefs.widgets, maxUnits: Self.referenceMaxUnits)
-            let kind = selection ?? settings.prefs.widgets.first?.kind ?? .media
-            HStack(alignment: .top, spacing: 20) {
-                SlotList(slots: $settings.prefs.widgets, selection: $selection,
-                         caption: "Drag to reorder: widgets appear left to right.") { slot in
-                    layout.hidden.contains(slot.kind)
-                        ? Text("No room").foregroundStyle(.orange)
-                        : Text("\(slot.units)U")
-                }
-                VStack(alignment: .leading, spacing: 14) {
-                    if let index = settings.prefs.widgets.firstIndex(where: { $0.kind == kind }) {
-                        let range = kind.unitRange
-                        LabeledContent("Width:") {
-                            Stepper("\(settings.prefs.widgets[index].units)U",
-                                    value: $settings.prefs.widgets[index].units, in: range)
-                                .disabled(range.count == 1)
-                        }
-                    }
-                    WidgetOptions(kind: kind)
-                    Divider()
-                    UnitsGauge(layout: layout)
-                }
-                .frame(width: 300, alignment: .topLeading)
-            }
-            .padding(24)
+            WidgetLayoutEditor(settings: settings, maxUnits: Self.referenceMaxUnits)
         }
     }
 }
 
 /// Per-widget settings, under the width stepper in Widgets › Layout.
-private struct WidgetOptions: View {
+struct WidgetOptions: View {
     let kind: WidgetKind
     @Bindable private var settings = Settings.shared
 
@@ -761,6 +754,8 @@ private struct WidgetOptions: View {
             ShortcutsOptions()
         case .mirror:
             MirrorOptions()
+        case .capture:
+            Caption("Choose an area or window for a screenshot. Use the macOS recording controls to start and stop a video. Finished captures appear in your tray.")
         case .media:
             if let pinned = settings.prefs.mediaPinnedSource {
                 LabeledContent("Pinned to:") {
@@ -994,7 +989,7 @@ private struct SlotList<Kind: SlotKind>: View {
 }
 
 /// "7 of 12 U used" bar, so you see how much room is left in the notch.
-private struct UnitsGauge: View {
+struct UnitsGauge: View {
     let layout: NookLayout
 
     var body: some View {
@@ -1009,7 +1004,7 @@ private struct UnitsGauge: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.7), value: layout.usedUnits)
             Text("\(layout.usedUnits) of \(layout.maxUnits) U used on this screen")
                 .font(.callout.monospacedDigit())
-            Caption("1U = \(Int(Grid.unit)) pt. The notch stops growing at 75% of the screen width; widgets past that stay hidden.")
+            Caption("1U = \(Int(Grid(prefs: Settings.shared.prefs).unit)) pt. The notch stops growing at 75% of the screen width; widgets past that stay hidden.")
         }
     }
 }

@@ -148,6 +148,26 @@ final class TrayStore {
         add(urls, move: settings.prefs.trayMoveOnDrop)
     }
 
+    /// Capture output is kept at its staging location until the tray copy succeeds.
+    /// This deliberately ignores the user's drag-and-drop move preference.
+    @discardableResult
+    func importCapture(from source: URL) throws -> URL {
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        let staging = folder.appendingPathComponent(".capture-\(UUID().uuidString)")
+        let target: URL
+        do {
+            try fileManager.copyItem(at: source, to: staging)
+            target = uniqueTarget(for: source.lastPathComponent, in: folder)
+            try fileManager.moveItem(at: staging, to: target)
+        } catch {
+            try? fileManager.removeItem(at: staging)
+            throw error
+        }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { files.append(target) }
+        selection = [target]
+        return target
+    }
+
     private func add(_ urls: [URL], move: Bool) {
         var added: [String] = []
         // Dragging a tray file back onto the tray is a no-op, not a duplicate.
@@ -418,6 +438,8 @@ enum DroppedItem {
         let group = DispatchGroup()
         var items = [DroppedItem?](repeating: nil, count: providers.count)
         for (i, provider) in providers.enumerated() {
+            // Module drags also conform to data, but must never become promised tray files.
+            guard !provider.hasItemConformingToTypeIdentifier(UTType.notchdWidget.identifier) else { continue }
             group.enter()
             let done: (DroppedItem?) -> Void = { item in
                 DispatchQueue.main.async { items[i] = item; group.leave() }
