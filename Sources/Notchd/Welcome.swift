@@ -63,7 +63,7 @@ private struct WelcomeView: View {
                                 .frame(width: 34, height: 34)
                                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.tint.opacity(0.15)))
                                 .symbolEffect(.bounce, value: shownTips)
-                            Text(tip.text)
+                            Text(L(tip.text))
                         }
                         .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.9)))
                     }

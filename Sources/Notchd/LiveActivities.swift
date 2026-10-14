@@ -11,10 +11,14 @@ enum LiveActivity: Equatable {
     case battery(percent: Int, state: BatteryState)
     /// Launch greeting; not a user-configurable activity.
     case hello
+    /// Volume/brightness overlay; always wins while it's up.
+    case hud(HUDState)
+
+    var isHUD: Bool { if case .hud = self { true } else { false } }
 
     var kind: ActivityKind? {
         switch self {
-        case .hello: nil
+        case .hello, .hud: nil
         case .media: .media
         case .tray: .tray
         case .calendar: .calendar
@@ -52,6 +56,10 @@ final class ActivityCenter {
     /// The activity a given notch shows: user order, minus dismissed ones and per-screen rules.
     func current(for model: NotchModel) -> LiveActivity? {
         let prefs = Settings.shared.prefs
+        if let hud = HUDCenter.shared.state,
+           prefs.hudAllScreens || model.displayID == NSScreen.screens.first?.displayID {
+            return .hud(hud)
+        }
         if flash == .hello { return .hello }
         guard prefs.liveActivitiesEnabled, model.hasNotch || !prefs.hideActivitiesOnPlainScreens else { return nil }
         let fullscreen = FullscreenMonitor.shared.isFullscreen(model.displayID)
@@ -80,6 +88,8 @@ final class ActivityCenter {
                 flash = nil
             case .timerExpired:
                 TimersStore.shared.dismissExpired()
+            case .hud:
+                break
             case .media, .tray, .calendar, .updateAvailable:
                 if let kind = activity.kind { dismissed[kind] = Self.signature(of: activity) }
             }
@@ -111,7 +121,7 @@ final class ActivityCenter {
             return "\(event?.title ?? "")|\(event?.start.timeIntervalSince1970 ?? 0)"
         case .updateAvailable:
             return Updater.shared.available?.version ?? ""
-        case .battery, .bluetooth, .timerExpired, .hello:
+        case .battery, .bluetooth, .timerExpired, .hello, .hud:
             return ""
         }
     }
@@ -198,7 +208,7 @@ struct GlanceLine: View {
                     if !info.artist.isEmpty { Text("— \(info.artist)").foregroundStyle(.secondary) }
                 }
             case let .tray(count):
-                Text("\(count) file\(count == 1 ? "" : "s") in tray")
+                Text(count == 1 ? "1 file in tray" : "\(count) files in tray")
             case .calendar:
                 if let event = CalendarStore.shared.upcoming {
                     Text(event.title).fontWeight(.semibold)
@@ -217,7 +227,13 @@ struct GlanceLine: View {
             case .hello:
                 Text("notchd is running").fontWeight(.semibold)
             case .timerExpired:
-                Text("Timer ended").fontWeight(.semibold)
+                if let label = TimersStore.shared.expiredLabel {
+                    Text("“\(label)” ended").fontWeight(.semibold)
+                } else {
+                    Text("Timer ended").fontWeight(.semibold)
+                }
+            case let .hud(state):
+                HUDBar(state: state).padding(.horizontal, 10)
             }
         }
         .font(.system(size: 11))
@@ -229,10 +245,10 @@ struct GlanceLine: View {
         let minutes = BatteryMonitor.minutesRemaining()
         let time = minutes.map { $0 >= 60 ? "\($0 / 60)h \($0 % 60)m" : "\($0)m" }
         switch state {
-        case .plugged: return time.map { "Charging · \($0) to full" } ?? "Charging"
-        case .unplugged: return time.map { "On battery · \($0) left" } ?? "On battery"
-        case .full: return "Fully charged"
-        case .low: return time.map { "Low battery · \($0) left" } ?? "Low battery"
+        case .plugged: return time.map { String(localized: "Charging · \($0) to full") } ?? L("Charging")
+        case .unplugged: return time.map { String(localized: "On battery · \($0) left") } ?? L("On battery")
+        case .full: return L("Fully charged")
+        case .low: return time.map { String(localized: "Low battery · \($0) left") } ?? L("Low battery")
         }
     }
 }

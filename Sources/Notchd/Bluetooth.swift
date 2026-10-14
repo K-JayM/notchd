@@ -42,7 +42,7 @@ final class BluetoothMonitor: NSObject {
     private func show(_ device: IOBluetoothDevice, connected: Bool) {
         guard Date() > suppressUntil else { return }
         ActivityCenter.shared.show(.bluetooth(BluetoothEvent(
-            name: device.name ?? "Bluetooth device",
+            name: device.name ?? L("Bluetooth device"),
             icon: Self.icon(for: device),
             connected: connected,
             battery: connected ? Self.battery(of: device) : nil

@@ -29,6 +29,12 @@ final class TrayStore {
     private(set) var files: [URL] = []
     private(set) var folder: URL
     var folderChangeNotice: FolderChangeNotice?
+    /// Files dropped together show as one pile (file names, relative to the folder).
+    private(set) var stacks: [[String]] = []
+    /// Piles opened up to show their files.
+    var expanded: Set<String> = []
+    /// Kept in the tray folder (hidden), so piles follow the folder and every tray has its own.
+    private var stacksFile: URL { folder.appendingPathComponent(".notchd-stacks.json") }
     var selection: Set<URL> = []
     /// File shown in Quick Look (Space).
     var previewURL: URL?
@@ -44,6 +50,7 @@ final class TrayStore {
         self.folder = folder.standardizedFileURL
         self.settings = settings
         self.fileManager = fileManager
+        stacks = (try? JSONDecoder().decode([[String]].self, from: Data(contentsOf: stacksFile))) ?? []
         reload()
         // Auto-clear runs at launch and then hourly.
         Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.autoClear() }
@@ -56,6 +63,85 @@ final class TrayStore {
             .map(\.standardizedFileURL)
             .sorted { $0.addedDate < $1.addedDate }
         autoClear()
+        pruneStacks()
+    }
+
+    // MARK: Stacks
+
+    enum Item: Identifiable, Equatable {
+        case file(URL), stack([URL])
+        var id: String {
+            switch self {
+            case let .file(url): url.lastPathComponent
+            case let .stack(urls): "stack:" + (urls.first?.lastPathComponent ?? "")
+            }
+        }
+        var urls: [URL] {
+            switch self {
+            case let .file(url): [url]
+            case let .stack(urls): urls
+            }
+        }
+    }
+
+    /// What the tray shows: single files, and piles of files dropped together (opened piles show their files).
+    var items: [Item] {
+        var result: [Item] = []
+        var seen = Set<URL>()
+        for file in files where !seen.contains(file) {
+            if let stack = stacks.first(where: { $0.contains(file.lastPathComponent) }) {
+                let urls = files.filter { stack.contains($0.lastPathComponent) }
+                seen.formUnion(urls)
+                if expanded.contains(stack[0]) { result += urls.map(Item.file) } else { result.append(.stack(urls)) }
+            } else {
+                result.append(.file(file))
+            }
+        }
+        return result
+    }
+
+    /// The pile a file belongs to, by the name of its first file.
+    func stackKey(of url: URL) -> String? {
+        stacks.first { $0.contains(url.lastPathComponent) }?.first
+    }
+
+    func toggleExpanded(_ key: String) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+            if expanded.remove(key) == nil { expanded.insert(key) }
+        }
+    }
+
+    /// Breaks a pile back into single files.
+    func unstack(_ key: String) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.72)) {
+            stacks.removeAll { $0.first == key }
+            expanded.remove(key)
+        }
+        saveStacks()
+    }
+
+    /// "3 PDFs", "4 images" or "5 files".
+    static func stackTitle(_ urls: [URL]) -> String {
+        let types = Set(urls.compactMap { try? $0.resourceValues(forKeys: [.contentTypeKey]).contentType })
+        if types.allSatisfy({ $0.conforms(to: .image) }) { return String(localized: "\(urls.count) images") }
+        if types.count == 1, let type = types.first, let ext = type.preferredFilenameExtension {
+            return "\(urls.count) \(ext.uppercased())"
+        }
+        return String(localized: "\(urls.count) files")
+    }
+
+    /// Forgets names that left the folder and piles left with fewer than two files.
+    private func pruneStacks() {
+        let names = Set(files.map(\.lastPathComponent))
+        let pruned = stacks.map { $0.filter(names.contains) }.filter { $0.count > 1 }
+        if pruned != stacks {
+            stacks = pruned
+            saveStacks()
+        }
+    }
+
+    private func saveStacks() {
+        try? JSONEncoder().encode(stacks).write(to: stacksFile, options: .atomic)
     }
 
     func add(_ urls: [URL]) {
@@ -63,16 +149,24 @@ final class TrayStore {
     }
 
     private func add(_ urls: [URL], move: Bool) {
+        var added: [String] = []
         // Dragging a tray file back onto the tray is a no-op, not a duplicate.
         for url in urls where url.deletingLastPathComponent().standardizedFileURL != folder.standardizedFileURL {
             let target = uniqueTarget(for: url.lastPathComponent, in: folder)
+            // Promised files (from Photos, Mail...) were saved to a temporary folder: take them as they are.
+            let temporary = url.path.hasPrefix(DroppedItem.promisesFolder.path)
             do {
-                if move { try fileManager.moveItem(at: url, to: target) }
+                if move || temporary { try fileManager.moveItem(at: url, to: target) }
                 else { try fileManager.copyItem(at: url, to: target) }
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { files.append(target) }
+                added.append(target.lastPathComponent)
             } catch {
                 NSLog("[Tray] \(move ? "move" : "copy") failed: \(error)")
             }
+        }
+        if added.count > 1 {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { stacks.append(added) }
+            saveStacks()
         }
     }
 
@@ -81,6 +175,7 @@ final class TrayStore {
         do {
             try fileManager.trashItem(at: url, resultingItemURL: nil)
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { files.removeAll { $0 == url } }
+            pruneStacks()
         } catch {
             NSLog("[Tray] trash failed: \(error)")
         }
@@ -99,6 +194,7 @@ final class TrayStore {
             files.removeAll { !fileManager.fileExists(atPath: $0.path) }
         }
         selection.formIntersection(files)
+        pruneStacks()
     }
 
     @discardableResult
@@ -110,6 +206,9 @@ final class TrayStore {
         do {
             try fileManager.moveItem(at: url, to: target)
             if let i = files.firstIndex(of: url) { files[i] = target }
+            stacks = stacks.map { $0.map { $0 == url.lastPathComponent ? target.lastPathComponent : $0 } }
+            if expanded.remove(url.lastPathComponent) != nil { expanded.insert(target.lastPathComponent) }
+            saveStacks()
             if selection.remove(url) != nil { selection.insert(target) }
             return target
         } catch {
@@ -141,13 +240,13 @@ final class TrayStore {
     }
 
     func add(text: String) {
-        write(Data(text.utf8), name: "Pasted Text \(Self.stamp()).txt")
+        write(Data(text.utf8), name: String(localized: "Pasted Text \(Self.stamp())") + ".txt")
     }
 
     func add(image: NSImage) {
         guard let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
         else { return }
-        write(png, name: "Pasted Image \(Self.stamp()).png")
+        write(png, name: String(localized: "Pasted Image \(Self.stamp())") + ".png")
     }
 
     /// Links become .webloc files, which open in the browser and AirDrop as links.
@@ -215,7 +314,13 @@ final class TrayStore {
         }
 
         // Only change the saved location once every file is available at the destination.
+        try? fileManager.removeItem(at: stacksFile)
         folder = target
+        // Piles follow their files, which may have been renamed to avoid clashes.
+        let renamed = Dictionary(uniqueKeysWithValues: destinations.map { ($0.lastPathComponent, $1.lastPathComponent) })
+        stacks = stacks.map { $0.map { renamed[$0] ?? $0 } }
+        expanded = []
+        if !stacks.isEmpty { saveStacks() }
         settings.prefs.trayFolder = newFolder?.path
         selection = Set(selection.compactMap { destinations[$0] })
         previewURL = previewURL.flatMap { destinations[$0] }
@@ -274,7 +379,40 @@ private extension URL {
 enum DroppedItem {
     case file(URL), link(URL), text(String), image(NSImage)
 
-    static let types: [UTType] = [.fileURL, .url, .image, .plainText]
+    static let types: [UTType] = [.fileURL, .url, .image, .plainText, .data]
+
+    /// Where files promised by other apps (Photos, Mail...) are written before going to the tray.
+    static let promisesFolder = FileManager.default.temporaryDirectory.appendingPathComponent("NotchdDrops", isDirectory: true)
+
+    /// A real file behind the drag that isn't a plain file URL: a photo, a mail attachment...
+    private static func fileType(of provider: NSItemProvider) -> String? {
+        provider.registeredTypeIdentifiers.first { id in
+            guard let type = UTType(id) else { return false }
+            return type.conforms(to: .data) && !type.conforms(to: .text) && !type.conforms(to: .url)
+        }
+    }
+
+    /// Saves a promised file under its own name before the provider deletes it.
+    private static func receive(_ provider: NSItemProvider, type: String, done: @escaping (DroppedItem?) -> Void) {
+        provider.loadFileRepresentation(forTypeIdentifier: type) { url, _ in
+            guard let url else { return done(nil) }
+            let folder = promisesFolder.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            var name = url.lastPathComponent
+            if let suggested = provider.suggestedName, !suggested.isEmpty {
+                let ext = url.pathExtension
+                name = ext.isEmpty || suggested.hasSuffix("." + ext) ? suggested : "\(suggested).\(ext)"
+            }
+            let target = folder.appendingPathComponent(name)
+            do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: url, to: target)
+                done(.file(target))
+            } catch {
+                NSLog("[Tray] could not receive \(name): \(error)")
+                done(nil)
+            }
+        }
+    }
 
     static func load(_ providers: [NSItemProvider], completion: @escaping ([DroppedItem]) -> Void) {
         let group = DispatchGroup()
@@ -288,6 +426,8 @@ enum DroppedItem {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     done(url.map { $0.isFileURL ? .file($0) : .link($0) })
                 }
+            } else if let type = fileType(of: provider) {
+                receive(provider, type: type, done: done)
             } else if provider.canLoadObject(ofClass: NSImage.self) {
                 provider.loadObject(ofClass: NSImage.self) { image, _ in done((image as? NSImage).map { .image($0) }) }
             } else if provider.canLoadObject(ofClass: String.self) {
@@ -347,9 +487,14 @@ struct TrayView: View {
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
-                        ForEach(store.files, id: \.self) { url in
-                            TrayFileView(url: url, model: model)
-                                .transition(.scale(scale: 0.4).combined(with: .opacity))
+                        ForEach(store.items) { item in
+                            Group {
+                                switch item {
+                                case let .file(url): TrayFileView(url: url, model: model)
+                                case let .stack(urls): TrayStackView(urls: urls)
+                                }
+                            }
+                            .transition(.scale(scale: 0.4).combined(with: .opacity))
                         }
                     }
                     .padding(.horizontal, 6)
@@ -405,7 +550,21 @@ struct TrayFileView: View {
             Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
                 .resizable()
                 .frame(width: 48, height: 48)
-                .overlay(TrayItemInteraction(url: url, onClick: click, menu: menu))
+                .overlay(TrayItemInteraction(urls: [url], onClick: click, menu: menu))
+                .overlay(alignment: .bottomTrailing) {
+                    // Opened pile: a small badge folds it back.
+                    if let key = store.stackKey(of: url), key == url.lastPathComponent {
+                        Button { store.toggleExpanded(key) } label: {
+                            Image(systemName: "arrow.down.right.and.arrow.up.left")
+                                .font(.system(size: 8, weight: .bold))
+                                .frame(width: 16, height: 16)
+                                .background(Circle().fill(Color.accentColor))
+                        }
+                        .buttonStyle(BouncyButtonStyle())
+                        .help(Text("Gather back into a pile"))
+                        .offset(x: 4, y: 4)
+                    }
+                }
             if store.renaming == url {
                 TextField("", text: $draftName)
                     .textFieldStyle(.plain)
@@ -462,16 +621,87 @@ struct TrayFileView: View {
         if !store.selection.contains(url) { store.selection = [url] }
         let targets = store.files.filter(store.selection.contains)
         let menu = ClosureMenu()
-        menu.add("Open") { targets.forEach { NSWorkspace.shared.open($0) } }
-        menu.add("Quick Look") { store.previewURL = url }
-        menu.add("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(targets) }
-        if targets.count == 1 { menu.add("Rename") { store.renaming = url } }
-        menu.add("Copy") { store.copyToPasteboard(targets) }
-        menu.add("Send via AirDrop") { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: targets) }
+        menu.add(String(localized: "Open")) { targets.forEach { NSWorkspace.shared.open($0) } }
+        menu.add(String(localized: "Quick Look")) { store.previewURL = url }
+        menu.add(String(localized: "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting(targets) }
+        if targets.count == 1 { menu.add(String(localized: "Rename")) { store.renaming = url } }
+        menu.add(String(localized: "Copy")) { store.copyToPasteboard(targets) }
+        menu.add(String(localized: "Send via AirDrop")) { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: targets) }
         menu.addItem(.separator())
-        menu.add(targets.count == 1 ? "Remove from Tray" : "Remove \(targets.count) Items from Tray") {
+        menu.add(targets.count == 1 ? String(localized: "Remove from Tray")
+                                    : String(localized: "Remove \(targets.count) Items from Tray")) {
             store.remove(targets)
         }
+        return menu
+    }
+}
+
+/// Files dropped together: a fanned pile with a count. Click opens it up; drag takes them all.
+struct TrayStackView: View {
+    let urls: [URL]
+    private var store = TrayStore.shared
+    @Local private var hovering = false
+
+    init(urls: [URL]) { self.urls = urls }
+
+    var body: some View {
+        let selected = !urls.isEmpty && urls.allSatisfy(store.selection.contains)
+        VStack(spacing: 4) {
+            ZStack {
+                ForEach(Array(urls.prefix(3).enumerated().reversed()), id: \.offset) { index, url in
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .frame(width: 44, height: 44)
+                        .rotationEffect(.degrees(Double(index) * (hovering ? 12 : 7)), anchor: .bottom)
+                        .offset(x: CGFloat(index) * (hovering ? 6 : 3))
+                }
+            }
+            .frame(width: 48, height: 48)
+            .overlay(alignment: .topTrailing) {
+                Text("\(urls.count)")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 16, minHeight: 16)
+                    .background(Capsule().fill(Color.accentColor))
+                    .offset(x: 6, y: -4)
+            }
+            .overlay(TrayItemInteraction(urls: urls, onClick: click, menu: menu))
+            Text(TrayStore.stackTitle(urls))
+                .font(.system(size: 10))
+                .lineLimit(1)
+                .padding(.horizontal, 3)
+                .background(RoundedRectangle(cornerRadius: 3).fill(selected ? Color.accentColor : .clear))
+                .frame(width: 72)
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(selected ? 0.16 : hovering ? 0.08 : 0)))
+        .scaleEffect(hovering ? 1.06 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.55), value: hovering)
+        .onHover { hovering = $0 }
+        .help(Text("Click to open the pile"))
+    }
+
+    private var key: String? { urls.first.flatMap(store.stackKey) }
+
+    private func click(_ modifiers: NSEvent.ModifierFlags, _ count: Int) {
+        if modifiers.contains(.command) {
+            if urls.allSatisfy(store.selection.contains) { store.selection.subtract(urls) } else { store.selection.formUnion(urls) }
+        } else if let key {
+            store.selection = Set(urls)
+            store.toggleExpanded(key)
+        }
+    }
+
+    private func menu() -> NSMenu {
+        store.selection = Set(urls)
+        let menu = ClosureMenu()
+        menu.add(String(localized: "Open All")) { urls.forEach { NSWorkspace.shared.open($0) } }
+        menu.add(String(localized: "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting(urls) }
+        menu.add(String(localized: "Copy")) { store.copyToPasteboard(urls) }
+        menu.add(String(localized: "Send via AirDrop")) { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: urls) }
+        if let key { menu.add(String(localized: "Unstack")) { store.unstack(key) } }
+        menu.addItem(.separator())
+        menu.add(String(localized: "Remove \(urls.count) Items from Tray")) { store.remove(urls) }
         return menu
     }
 }
@@ -495,20 +725,21 @@ final class ClosureMenu: NSMenu {
 /// Option (SwiftUI's onDrag can't choose the operation or tell when the drop is done). Plain clicks and
 /// right clicks are forwarded.
 struct TrayItemInteraction: NSViewRepresentable {
-    let url: URL
+    /// One file, or every file of a pile.
+    let urls: [URL]
     let onClick: (NSEvent.ModifierFlags, Int) -> Void
     let menu: () -> NSMenu
 
     func makeNSView(context: Context) -> DragView { DragView() }
 
     func updateNSView(_ view: DragView, context: Context) {
-        view.url = url
+        view.urls = urls
         view.onClick = onClick
         view.menuProvider = menu
     }
 
     final class DragView: NSView, NSDraggingSource {
-        var url: URL?
+        var urls: [URL] = []
         var onClick: ((NSEvent.ModifierFlags, Int) -> Void)?
         var menuProvider: (() -> NSMenu)?
         private var downEvent: NSEvent?
@@ -517,14 +748,14 @@ struct TrayItemInteraction: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) { downEvent = event }
 
         override func mouseDragged(with event: NSEvent) {
-            guard let down = downEvent, let url else { return }
+            guard let down = downEvent, let url = urls.first else { return }
             let distance = hypot(event.locationInWindow.x - down.locationInWindow.x,
                                  event.locationInWindow.y - down.locationInWindow.y)
             guard distance > 3 else { return }
             downEvent = nil
             let store = TrayStore.shared
-            let urls = store.selection.contains(url) ? store.files.filter(store.selection.contains) : [url]
-            let items = urls.enumerated().map { index, file in
+            let dragged = store.selection.contains(url) ? store.files.filter(store.selection.contains) : urls
+            let items = dragged.enumerated().map { index, file in
                 let item = NSDraggingItem(pasteboardWriter: file as NSURL)
                 let offset = CGFloat(index) * 4
                 item.setDraggingFrame(bounds.offsetBy(dx: offset, dy: -offset),

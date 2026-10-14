@@ -266,3 +266,45 @@ private final class TrayFixture {
         #expect(Set(restarted.files) == Set(originals))
     }
 }
+
+@Test func trayStacks() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("notchd-stack-\(UUID().uuidString)")
+    let src = dir.appendingPathExtension("src")
+    defer { [dir, src].forEach { try? FileManager.default.removeItem(at: $0) } }
+    try FileManager.default.createDirectory(at: src, withIntermediateDirectories: true)
+    let sources = try ["a.pdf", "b.pdf", "c.pdf"].map { name in
+        let url = src.appendingPathComponent(name)
+        try Data("x".utf8).write(to: url)
+        return url
+    }
+    let preferences = TestPreferences()
+    let store = TrayStore(folder: dir, settings: preferences.settings)
+
+    // Dropped together → one pile; dropped alone → a plain file.
+    store.add(Array(sources.prefix(2)))
+    store.add([sources[2]])
+    #expect(store.items.count == 2)
+    guard case let .stack(pile) = store.items[0] else { Issue.record("expected a pile"); return }
+    #expect(pile.count == 2)
+    #expect(TrayStore.stackTitle(pile) == "2 PDF")
+
+    // Opening a pile shows its files; renaming keeps the file in it; the pile survives a relaunch.
+    let key = try #require(store.stackKey(of: pile[0]))
+    store.toggleExpanded(key)
+    #expect(store.items.count == 3)
+    store.toggleExpanded(key)
+    store.rename(pile[1], to: "renamed.pdf")
+    #expect(TrayStore(folder: dir, settings: preferences.settings).items.count == 2)
+
+    // Changing the tray folder takes the piles along.
+    let elsewhere = dir.appendingPathExtension("moved")
+    defer { try? FileManager.default.removeItem(at: elsewhere) }
+    #expect(store.setFolder(elsewhere))
+    #expect(TrayStore(folder: elsewhere, settings: preferences.settings).items.count == 2)
+    guard case let .stack(moved) = store.items[0] else { Issue.record("pile lost in the move"); return }
+
+    // Removing a file leaves a pile of one, which is just a file again.
+    store.remove(moved[0])
+    #expect(store.items.allSatisfy { if case .file = $0 { true } else { false } })
+    #expect(store.items.count == 2)
+}

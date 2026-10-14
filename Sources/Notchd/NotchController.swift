@@ -134,12 +134,18 @@ final class NotchController {
     private func detectFileDrag(at mouse: NSPoint) {
         let pasteboard = NSPasteboard(name: .drag)
         guard !model.dropping, pasteboard.changeCount != dragChangeCount,
-              pasteboard.types?.contains(where: [.fileURL, .URL, .string].contains) == true else { return }
+              pasteboard.types?.contains(where: Self.droppableTypes.contains) == true else { return }
         let zone = NSRect(x: screen.frame.midX - 200, y: screen.frame.maxY - 90, width: 400, height: 90)
         guard zone.contains(mouse) else { return }
         model.dropping = true
         model.open()
     }
+
+    /// Files, links, text, images, and files promised by apps like Photos or Mail.
+    private static let droppableTypes: [NSPasteboard.PasteboardType] = {
+        let promised = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        return [.fileURL, .URL, .string, .tiff, .png] + promised
+    }()
 
     /// Finder-style shortcuts in the Tray tab. Returns true when the key was handled.
     private func handleTrayKey(_ event: NSEvent) -> Bool {

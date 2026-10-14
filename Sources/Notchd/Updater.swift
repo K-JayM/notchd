@@ -97,7 +97,7 @@ final class Updater {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tag = json["tag_name"] as? String, let latest = AppVersion(tag),
               let page = (json["html_url"] as? String).flatMap(URL.init(string:)) else {
-            return .failure(UpdateError("Unexpected answer from GitHub."))
+            return .failure(UpdateError(L("Unexpected answer from GitHub.")))
         }
         guard let current, current < latest else { return .success(nil) }
         let assets = json["assets"] as? [[String: Any]] ?? []
@@ -112,7 +112,7 @@ final class Updater {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { status = .installing }
         URLSession.shared.downloadTask(with: update.zipURL) { [weak self] file, _, error in
             let result: Result<URL, Error> = {
-                guard let file else { return .failure(error ?? UpdateError("Download failed.")) }
+                guard let file else { return .failure(error ?? UpdateError(L("Download failed."))) }
                 return Result { try Self.unpack(file) }
             }()
             DispatchQueue.main.async {
@@ -130,10 +130,10 @@ final class Updater {
         try run("/usr/bin/ditto", ["-x", "-k", zip.path, dir.path])
         let app = dir.appendingPathComponent("Notchd.app")
         guard Bundle(url: app)?.bundleIdentifier == Bundle.main.bundleIdentifier else {
-            throw UpdateError("The download isn't a notchd build.")
+            throw UpdateError(L("The download isn't a notchd build."))
         }
         try run("/usr/bin/codesign", ["--verify", "--deep", app.path])
-        guard signedLikeUs(app) else { throw UpdateError("The download isn't signed with notchd's certificate.") }
+        guard signedLikeUs(app) else { throw UpdateError(L("The download isn't signed with notchd's certificate.")) }
         return app
     }
 
@@ -154,7 +154,7 @@ final class Updater {
     private func swapAndRelaunch(with newApp: URL) {
         let current = Bundle.main.bundleURL
         guard FileManager.default.isWritableFile(atPath: current.deletingLastPathComponent().path) else {
-            status = .failed("Can't write to \(current.deletingLastPathComponent().path). Download it from GitHub instead.")
+            status = .failed(String(localized: "Can't write to \(current.deletingLastPathComponent().path). Download it from GitHub instead."))
             return
         }
         // A detached shell waits for us to quit, swaps the bundles, and opens the new one.
