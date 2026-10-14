@@ -60,19 +60,27 @@ final class TodoStore {
 struct TodoWidget: View {
     @Bindable var model: NotchModel
     @Bindable private var store = TodoStore.shared
+    private var reminders = RemindersStore.shared
     @Local private var draft = ""
     @FocusState private var focused: Bool
 
     init(model: NotchModel) { self.model = model }
 
+    /// Synced to a Reminders list instead of the widget's own tasks.
+    private var syncing: Bool { Settings.shared.prefs.todoRemindersList != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "plus.circle.fill").foregroundStyle(.secondary)
-                TextField("New task", text: $draft)
+                TextField(syncing ? "New reminder" : "New task", text: $draft)
                     .textFieldStyle(.plain)
                     .focused($focused)
                     .onSubmit(add)
+                if syncing {
+                    Image(systemName: "checklist").font(.system(size: 9)).foregroundStyle(.secondary)
+                        .help(Text("Synced with Reminders"))
+                }
             }
             .font(.system(size: 12))
             .padding(.horizontal, 8)
@@ -81,11 +89,7 @@ struct TodoWidget: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(store.visible(showCompleted: Settings.shared.prefs.todoShowCompleted)) { item in
-                        TodoRow(item: binding(item.id))
-                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
-                                                    removal: .scale(scale: 0.6).combined(with: .opacity)))
-                    }
+                    if syncing { reminderRows } else { taskRows }
                 }
             }
         }
@@ -95,63 +99,107 @@ struct TodoWidget: View {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.55)) { model.locked = true }
             }
         }
+        .onAppear { if syncing { reminders.requestAccess() } }
     }
 
-    private func binding(_ id: UUID) -> Binding<TodoItem> {
-        Binding(get: { store.items.first { $0.id == id } ?? TodoItem(title: "") },
-                set: { new in if let i = store.items.firstIndex(where: { $0.id == id }) { store.items[i] = new } })
+    @ViewBuilder private var taskRows: some View {
+        ForEach(store.visible(showCompleted: Settings.shared.prefs.todoShowCompleted)) { item in
+            TaskRow(title: item.title, done: item.done, starred: item.starred,
+                    toggleDone: { update(item.id) { $0.done.toggle() } },
+                    toggleStar: { update(item.id) { $0.starred.toggle() } },
+                    delete: { store.items.removeAll { $0.id == item.id } })
+                .transition(Self.rowTransition)
+        }
+    }
+
+    @ViewBuilder private var reminderRows: some View {
+        if reminders.denied {
+            Text("Reminders access needed").font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        ForEach(reminders.reminders, id: \.calendarItemIdentifier) { reminder in
+            TaskRow(title: reminder.title ?? "", done: reminder.isCompleted, starred: RemindersStore.isStarred(reminder),
+                    due: reminder.dueDateComponents?.date,
+                    toggleDone: { reminders.toggleDone(reminder) },
+                    toggleStar: { reminders.toggleStar(reminder) },
+                    delete: { reminders.delete(reminder) })
+                .transition(Self.rowTransition)
+        }
+    }
+
+    private static let rowTransition = AnyTransition.asymmetric(
+        insertion: .move(edge: .top).combined(with: .opacity), removal: .scale(scale: 0.6).combined(with: .opacity))
+
+    private func update(_ id: UUID, _ change: (inout TodoItem) -> Void) {
+        guard let i = store.items.firstIndex(where: { $0.id == id }) else { return }
+        change(&store.items[i])
     }
 
     private func add() {
         let title = draft.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return }
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.68)) {
-            store.items.insert(TodoItem(title: title), at: 0)
+        if syncing {
+            reminders.add(title)
+        } else {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.68)) {
+                store.items.insert(TodoItem(title: title), at: 0)
+            }
         }
         draft = ""
     }
 }
 
-private struct TodoRow: View {
-    @Binding var item: TodoItem
+/// One task: check it off, star it to keep it on top, right-click to delete.
+private struct TaskRow: View {
+    let title: String
+    let done: Bool
+    let starred: Bool
+    var due: Date?
+    let toggleDone: () -> Void
+    let toggleStar: () -> Void
+    let delete: () -> Void
     @Local private var hovering = false
 
     var body: some View {
         HStack(spacing: 8) {
             Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) { item.done.toggle() }
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) { toggleDone() }
                 Haptics.tap()
             } label: {
-                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                Image(systemName: done ? "checkmark.circle.fill" : "circle")
                     .contentTransition(.symbolEffect(.replace))
-                    .foregroundStyle(item.done ? .green : .secondary)
+                    .foregroundStyle(done ? .green : .secondary)
             }
             .buttonStyle(BouncyButtonStyle())
-            Text(item.title)
-                .strikethrough(item.done)
-                .foregroundStyle(item.done ? .secondary : .primary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title)
+                    .strikethrough(done)
+                    .foregroundStyle(done ? .secondary : .primary)
+                    .lineLimit(1)
+                if let due, !done {
+                    Text(due, format: .relative(presentation: .named))
+                        .font(.system(size: 9))
+                        .foregroundStyle(due < .now ? .red : .secondary)
+                }
+            }
             Spacer(minLength: 0)
             Button {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { item.starred.toggle() }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { toggleStar() }
                 Haptics.tap()
             } label: {
-                Image(systemName: item.starred ? "star.fill" : "star")
+                Image(systemName: starred ? "star.fill" : "star")
                     .contentTransition(.symbolEffect(.replace))
-                    .foregroundStyle(item.starred ? .yellow : .secondary.opacity(hovering ? 1 : 0))
+                    .foregroundStyle(starred ? .yellow : .secondary.opacity(hovering ? 1 : 0))
             }
             .buttonStyle(BouncyButtonStyle())
-            .help(Text(item.starred ? "Unstar" : "Star: keeps it on top"))
+            .help(Text(starred ? "Unstar" : "Star: keeps it on top"))
         }
         .onHover { hovering = $0 }
         .font(.system(size: 12))
         .padding(.vertical, 3)
         .contextMenu {
-            Button(item.starred ? "Unstar" : "Star") { item.starred.toggle() }
+            Button(starred ? "Unstar" : "Star", action: toggleStar)
             Button("Delete", role: .destructive) {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                    TodoStore.shared.items.removeAll { $0.id == item.id }
-                }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { delete() }
             }
         }
     }

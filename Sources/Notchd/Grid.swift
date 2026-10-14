@@ -21,9 +21,10 @@ struct Grid {
         dividers ? 2 * dividerPadding + 1 : sizing == .compact ? 10 : 14
     }
 
-    /// Two 26-point buttons and a 6-point gap on each side of the physical camera housing.
+    /// Three 26-point buttons and two 6-point gaps on each side of the physical camera housing
+    /// (Home, Tray, Clipboard; keep awake, settings, lock).
     func minimumWidth(notchWidth: CGFloat) -> CGFloat {
-        max(sizing == .compact ? 380 : 480, notchWidth + 20 + 2 * (58 + 14))
+        max(sizing == .compact ? 380 : 480, notchWidth + 20 + 2 * (90 + 14))
     }
 
     /// Point width of a widget spanning `units`.
@@ -74,11 +75,11 @@ struct NookLayout: Equatable {
 extension WidgetKind {
     var defaultUnits: Int {
         ["media": 3, "calendar": 3, "todo": 2, "timer": 3, "notes": 3, "shortcuts": 2, "mirror": 2,
-         "capture": 2][rawValue]!
+         "capture": 2, "pomodoro": 2, "stats": 2, "weather": 3, "colors": 2][rawValue]!
     }
     var unitRange: ClosedRange<Int> {
         ["media": 3...4, "calendar": 3...5, "todo": 2...4, "timer": 3...4, "notes": 2...5, "shortcuts": 2...5,
-         "mirror": 2...3, "capture": 2...3][rawValue]!
+         "mirror": 2...3, "capture": 2...3, "pomodoro": 2...3, "stats": 2...4, "weather": 2...4, "colors": 2...3][rawValue]!
     }
 }
 

@@ -31,7 +31,7 @@ extension NSScreen {
 @Observable
 final class NotchModel {
     enum State { case closed, open }
-    enum Tab { case nook, tray }
+    enum Tab { case nook, tray, clipboard }
     enum DropTarget { case tray, airDrop }
 
     var state: State = .closed
@@ -65,7 +65,7 @@ final class NotchModel {
         let layout = self.layout
         let notchWidth = hasNotch ? closedSize.width : 0
         var width = grid.openWidth(units: layout.usedUnits, dividers: prefs.showDividers, notchWidth: notchWidth)
-        if prefs.openNotchSize == .compact, dropping || tab == .tray {
+        if prefs.openNotchSize == .compact, dropping || tab == .tray || tab == .clipboard {
             width = max(grid.minimumWidth(notchWidth: notchWidth), min(width, 480))
         }
         let showsTimer = !dropping && tab == .nook && layout.shown.contains(.timer)
