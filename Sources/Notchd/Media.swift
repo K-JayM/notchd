@@ -14,6 +14,9 @@ struct NowPlaying: Equatable {
     var artwork: NSImage?
     var tint: Color = .white
 
+    /// Icon of the app playing, for the badge on the artwork.
+    var appIcon: NSImage? { MediaManager.appIcon(bundleID) }
+
     /// Playback position now, extrapolated from the last report.
     func position(at date: Date) -> Double {
         guard playing else { return elapsed }
@@ -33,6 +36,10 @@ final class MediaManager {
     private(set) var nowPlaying: NowPlaying?
     /// True while the media live activity should be on screen (playing, or paused less than the timeout ago).
     private(set) var showActivity = false
+    /// Players seen this session that are still running, most recent first.
+    private(set) var sources: [String] = []
+    /// The player the system currently routes Now Playing to (may differ from `nowPlaying` when pinned).
+    private var systemSource = ""
 
     private var process: Process?
     private var state: [String: Any] = [:]
@@ -40,6 +47,17 @@ final class MediaManager {
     private var hideWork: DispatchWorkItem?
 
     private var resources: URL? { Bundle.main.resourceURL }
+
+    init() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, let id = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?
+                .bundleIdentifier, sources.contains(id) else { return }
+            sources.removeAll { $0 == id }
+            if nowPlaying?.bundleID == id { apply() }  // a pinned player quit: follow the system again
+        }
+    }
 
     func start() {
         guard let resources,
@@ -77,9 +95,49 @@ final class MediaManager {
         try? adapter(["send", "\(command)"]).run()
     }
 
-    func togglePlayPause() { send(2) }
-    func next() { send(4) }
-    func previous() { send(5) }
+    func togglePlayPause() { command(2, script: "playpause") }
+    func next() { command(4, script: "next track") }
+    func previous() { command(5, script: "previous track") }
+
+    /// MediaRemote only drives the system's current player. When the widget is pinned to another one,
+    /// Music and Spotify are scriptable, so they get an Apple Event instead.
+    private func command(_ id: Int, script: String) {
+        if let shown = nowPlaying?.bundleID, shown != systemSource, Self.scriptable.contains(shown) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", "tell application id \"\(shown)\" to \(script)"]
+            try? process.run()
+        } else {
+            send(id)
+        }
+    }
+
+    private static let scriptable: Set = ["com.apple.Music", "com.spotify.client"]
+
+    /// Shows a player in the widget (and keeps it there) or follows the system again (nil).
+    func pin(_ bundleID: String?) {
+        Settings.shared.prefs.mediaPinnedSource = bundleID
+        apply()
+    }
+
+    static func appIcon(_ bundleID: String) -> NSImage? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID).map { NSWorkspace.shared.icon(forFile: $0.path) }
+    }
+
+    static func appName(_ bundleID: String) -> String {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+            .map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") } ?? bundleID
+    }
+
+    func openApp() {
+        guard let id = nowPlaying?.bundleID, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
+        else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init())
+    }
+
+    /// Players offered when nothing is playing, if installed.
+    static let knownPlayers = ["com.apple.Music", "com.spotify.client", "com.apple.podcasts", "com.tidal.desktop",
+                               "com.deezer.deezer-desktop", "com.colliderli.iina", "org.videolan.vlc"]
 
     func seek(to seconds: Double) {
         try? adapter(["seek", "\(Int(seconds * 1_000_000))"]).run()
@@ -114,6 +172,18 @@ final class MediaManager {
     }
 
     private func apply() {
+        // Browsers play through helper processes: name the browser, not its helper.
+        let bundleID = state["parentApplicationBundleIdentifier"] as? String ?? state["bundleIdentifier"] as? String ?? ""
+        systemSource = bundleID
+        if !bundleID.isEmpty, sources.first != bundleID {
+            sources.removeAll { $0 == bundleID }
+            sources.insert(bundleID, at: 0)
+        }
+        // Pinned to another player that's still running: keep showing it.
+        if let pinned = Settings.shared.prefs.mediaPinnedSource, pinned != bundleID,
+           !NSRunningApplication.runningApplications(withBundleIdentifier: pinned).isEmpty {
+            return
+        }
         guard let title = state["title"] as? String, !title.isEmpty else {
             update(nil)
             return
@@ -122,7 +192,7 @@ final class MediaManager {
         info.title = title
         info.artist = state["artist"] as? String ?? ""
         info.album = state["album"] as? String ?? ""
-        info.bundleID = state["bundleIdentifier"] as? String ?? ""
+        info.bundleID = bundleID
         info.playing = state["playing"] as? Bool ?? false
         info.duration = state["duration"] as? Double ?? 0
         info.elapsed = state["elapsedTime"] as? Double ?? 0
@@ -242,6 +312,11 @@ struct MediaEffectView: View {
     }
 }
 
+/// Effects follow the system volume: quieter music, smaller bars; flat when muted.
+extension Spectrograph {
+    static var gain: CGFloat { 0.3 + 0.7 * AudioVolume.shared.loudness }
+}
+
 /// Fake audio spectrograph: bars bouncing on springs. Flat when paused.
 struct Spectrograph: View {
     let playing: Bool
@@ -253,10 +328,11 @@ struct Spectrograph: View {
             ForEach(levels.indices, id: \.self) { i in
                 Capsule()
                     .fill(tint)
-                    .frame(width: 3, height: 4 + 12 * (playing ? levels[i] : 0))
+                    .frame(width: 3, height: 4 + 12 * (playing ? levels[i] * Self.gain : 0))
             }
         }
         .frame(height: 16)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: AudioVolume.shared.loudness)
         .task(id: playing) {
             while playing, !Task.isCancelled {
                 withAnimation(.spring(response: 0.28, dampingFraction: 0.5)) {
@@ -286,7 +362,7 @@ struct Waves: View {
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 for (speed, alpha) in [(5.0, 1.0), (-3.5, 0.45)] {
-                    let path = Self.wave(in: size, time: t, speed: speed, amplitude: amplitude)
+                    let path = Self.wave(in: size, time: t, speed: speed, amplitude: amplitude * Spectrograph.gain)
                     context.stroke(path, with: .color(tint.opacity(alpha)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 }
             }
@@ -331,7 +407,8 @@ struct VibratingCircle: View {
                 return
             }
             while !Task.isCancelled {
-                withAnimation(.spring(response: 0.18, dampingFraction: 0.4)) { scale = .random(in: 0.75...1) }
+                let peak = 0.55 + 0.45 * Spectrograph.gain
+                withAnimation(.spring(response: 0.18, dampingFraction: 0.4)) { scale = .random(in: (peak - 0.2)...peak) }
                 try? await Task.sleep(for: .milliseconds(200))
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { scale = .random(in: 0.5...0.65) }
                 try? await Task.sleep(for: .milliseconds(.random(in: 150...320)))
@@ -348,28 +425,48 @@ struct MediaWidget: View {
 
     var body: some View {
         let info = media.nowPlaying
-        HStack(spacing: 12) {
-            Artwork(image: info?.artwork, cornerRadius: Settings.shared.prefs.albumCornerRadius * 1.2)
-                .frame(width: 72, height: 72)
-                .scaleEffect(info?.playing == false ? 0.9 : 1)
-                .shadow(color: (info?.tint ?? .clear).opacity(0.35), radius: 10)
-                .animation(.spring(response: 0.4, dampingFraction: 0.6), value: info?.playing)
-                .id(info?.title)
-                .transition(.scale(scale: 0.6).combined(with: .opacity))
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(info?.title ?? "Nothing playing")
-                    .font(.system(size: 13, weight: .semibold))
-                    .lineLimit(1)
-                Text(info?.artist ?? " ")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if let info, info.duration > 0 { progress(info) }
-                controls(info)
+        Group {
+            if let info {
+                HStack(spacing: 12) {
+                    artwork(info)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(info.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                        Text(info.artist.isEmpty ? " " : info.artist)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                        if info.duration > 0 { progress(info) }
+                        controls(info)
+                    }
+                }
+            } else {
+                PlayerLauncher()
             }
         }
+        .overlay(alignment: .topTrailing) { SourcePicker() }
         .animation(.spring(response: 0.4, dampingFraction: 0.7), value: info?.title)
+    }
+
+    /// Artwork with the player's icon in the corner; a click brings the player forward.
+    private func artwork(_ info: NowPlaying) -> some View {
+        Button(action: media.openApp) {
+            Artwork(image: info.artwork, cornerRadius: Settings.shared.prefs.albumCornerRadius * 1.2)
+                .frame(width: 72, height: 72)
+                .overlay(alignment: .bottomTrailing) {
+                    if let icon = info.appIcon {
+                        Image(nsImage: icon).resizable().frame(width: 24, height: 24).offset(x: 7, y: 7)
+                    }
+                }
+        }
+        .buttonStyle(BouncyButtonStyle())
+        .help(Text("Open \(MediaManager.appName(info.bundleID))"))
+        .scaleEffect(info.playing ? 1 : 0.9)
+        .shadow(color: info.tint.opacity(0.35), radius: 10)
+        .animation(.spring(response: 0.4, dampingFraction: 0.6), value: info.playing)
+        .id(info.title)
+        .transition(.scale(scale: 0.6).combined(with: .opacity))
     }
 
     private func progress(_ info: NowPlaying) -> some View {
@@ -404,11 +501,11 @@ struct MediaWidget: View {
         }
     }
 
-    private func controls(_ info: NowPlaying?) -> some View {
+    private func controls(_ info: NowPlaying) -> some View {
         HStack(spacing: 18) {
             Button(action: media.previous) { Image(systemName: "backward.fill") }
             Button(action: media.togglePlayPause) {
-                Image(systemName: info?.playing == true ? "pause.fill" : "play.fill")
+                Image(systemName: info.playing ? "pause.fill" : "play.fill")
                     .contentTransition(.symbolEffect(.replace))
                     .font(.system(size: 18))
             }
@@ -417,12 +514,76 @@ struct MediaWidget: View {
         .font(.system(size: 13))
         .buttonStyle(BouncyButtonStyle())
         .frame(maxWidth: .infinity)
-        .disabled(info == nil)
     }
 
     private static func time(_ seconds: Double) -> String {
         let s = Int(max(0, seconds))
         return String(format: "%d:%02d", s / 60, s % 60)
+    }
+}
+
+/// Nothing playing: offers the players installed on this Mac.
+private struct PlayerLauncher: View {
+    private let players = MediaManager.knownPlayers
+        .compactMap { id in NSWorkspace.shared.urlForApplication(withBundleIdentifier: id).map { (id, $0) } }
+        .prefix(3)
+
+    var body: some View {
+        VStack(spacing: 10) {
+            VStack(spacing: 2) {
+                Text("Nothing playing").font(.system(size: 13, weight: .semibold))
+                if !players.isEmpty {
+                    Text("Start some music?").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 14) {
+                ForEach(Array(players), id: \.0) { id, url in
+                    Button {
+                        NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                    } label: {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                            .resizable()
+                            .frame(width: 38, height: 38)
+                    }
+                    .buttonStyle(BouncyButtonStyle())
+                    .help(MediaManager.appName(id))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Small player icons when several are around: click one to stick to it, again to follow the system.
+private struct SourcePicker: View {
+    private var media = MediaManager.shared
+
+    var body: some View {
+        let pinned = Settings.shared.prefs.mediaPinnedSource
+        if media.sources.count > 1 {
+            HStack(spacing: 3) {
+                ForEach(media.sources.prefix(4), id: \.self) { id in
+                    Button {
+                        media.pin(pinned == id ? nil : id)
+                        Haptics.tap()
+                    } label: {
+                        if let icon = MediaManager.appIcon(id) {
+                            Image(nsImage: icon)
+                                .resizable()
+                                .frame(width: 16, height: 16)
+                                .padding(2)
+                                .background(Circle().fill(.white.opacity(pinned == id ? 0.25 : 0)))
+                                .opacity(media.nowPlaying?.bundleID == id ? 1 : 0.5)
+                        }
+                    }
+                    .buttonStyle(BouncyButtonStyle())
+                    .help(pinned == id ? Text("Pinned to \(MediaManager.appName(id)). Click to follow the system again.")
+                                       : Text("Show \(MediaManager.appName(id))"))
+                }
+            }
+            .padding(.top, -6)
+            .transition(.scale.combined(with: .opacity))
+        }
     }
 }
 

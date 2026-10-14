@@ -72,8 +72,14 @@ struct NookLayout: Equatable {
 }
 
 extension WidgetKind {
-    var defaultUnits: Int { ["media": 3, "calendar": 2, "todo": 2, "timer": 3, "capture": 2][rawValue]! }
-    var unitRange: ClosedRange<Int> { ["media": 3...4, "calendar": 2...4, "todo": 2...4, "timer": 3...4, "capture": 2...3][rawValue]! }
+    var defaultUnits: Int {
+        ["media": 3, "calendar": 3, "todo": 2, "timer": 3, "notes": 3, "shortcuts": 2, "mirror": 2,
+         "capture": 2][rawValue]!
+    }
+    var unitRange: ClosedRange<Int> {
+        ["media": 3...4, "calendar": 3...5, "todo": 2...4, "timer": 3...4, "notes": 2...5, "shortcuts": 2...5,
+         "mirror": 2...3, "capture": 2...3][rawValue]!
+    }
 }
 
 extension Slot where Kind == WidgetKind {

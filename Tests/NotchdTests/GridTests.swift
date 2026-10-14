@@ -4,12 +4,12 @@ import Testing
 
 @Test func nookLayoutFit() {
     let slots: [Slot<WidgetKind>] = [
-        Slot(kind: .media), Slot(kind: .timer), Slot(kind: .calendar), Slot(kind: .todo, enabled: false),
+        Slot(kind: .media), Slot(kind: .timer), Slot(kind: .todo), Slot(kind: .calendar, enabled: false),
     ]
     // 3 + 3 + 2 = 8U
-    #expect(NookLayout.fit(slots, maxUnits: 12) == NookLayout(shown: [.media, .timer, .calendar], usedUnits: 8, maxUnits: 12))
-    // Timer (3U) doesn't fit after media in 5U, calendar (2U) still does.
-    #expect(NookLayout.fit(slots, maxUnits: 5) == NookLayout(shown: [.media, .calendar], hidden: [.timer], usedUnits: 5, maxUnits: 5))
+    #expect(NookLayout.fit(slots, maxUnits: 12) == NookLayout(shown: [.media, .timer, .todo], usedUnits: 8, maxUnits: 12))
+    // Timer (3U) doesn't fit after media in 5U, the to-do list (2U) still does.
+    #expect(NookLayout.fit(slots, maxUnits: 5) == NookLayout(shown: [.media, .todo], hidden: [.timer], usedUnits: 5, maxUnits: 5))
 
     var wide = slots
     wide[0].units = 4

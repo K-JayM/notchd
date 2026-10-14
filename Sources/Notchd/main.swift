@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ = TimersStore.shared  // rings even if the timer widget is never shown
         _ = FullscreenMonitor.shared
         Updater.shared.start()
+        HUDCenter.shared.start()
+        installMainMenu()
 
         // Dev: `--args -demo battery|unplugged|full|low|bluetooth|timer|peek|update|install` fires a sample activity.
         if let demo = UserDefaults.standard.string(forKey: "demo") {
@@ -84,7 +86,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateCancel
     }
 
+    /// Never shown (no Dock icon), but it's what makes ⌘C/⌘V/⌘Z/⌘B work in text fields.
+    private func installMainMenu() {
+        let main = NSMenu()
+        let items: [(String, [(String, String, String)])] = [
+            ("Edit", [("Undo", "undo:", "z"), ("Redo", "redo:", "Z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
+                      ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")]),
+            ("Format", [("Bold", "toggleBold:", "b"), ("Italic", "toggleItalic:", "i"), ("Underline", "underline:", "u")]),
+        ]
+        for (title, entries) in items {
+            let menu = NSMenu(title: title)
+            for (name, action, key) in entries {
+                menu.addItem(NSMenuItem(title: name, action: Selector(action), keyEquivalent: key))
+            }
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.submenu = menu
+            main.addItem(item)
+        }
+        NSApp.mainMenu = main
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        HUDCenter.shared.stop()
         MediaManager.shared.stop()
     }
 

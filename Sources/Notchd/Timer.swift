@@ -5,12 +5,14 @@ struct TimerEntry: Codable, Identifiable, Equatable {
     enum State: String, Codable { case running, paused, expired }
 
     var id = UUID()
+    var label: String?
     var total: Double
     var state = State.running
     var endsAt: Date?        // while running
     var remaining: Double    // while paused
 
-    init(seconds: Double, now: Date = .now) {
+    init(seconds: Double, label: String? = nil, now: Date = .now) {
+        self.label = label
         total = seconds
         remaining = seconds
         endsAt = now.addingTimeInterval(seconds)
@@ -36,6 +38,8 @@ final class TimersStore {
     }
 
     var hasExpired: Bool { entries.contains { $0.state == .expired } }
+    /// Name of the ringing timer, if it has one.
+    var expiredLabel: String? { entries.first { $0.state == .expired }?.label }
 
     init() {
         entries = (try? JSONDecoder().decode([TimerEntry].self, from: Data(contentsOf: file))) ?? []
@@ -43,10 +47,16 @@ final class TimersStore {
         tick()
     }
 
-    func start(seconds: Double) {
+    func start(seconds: Double, label: String? = nil) {
         guard seconds > 0 else { return }
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) { entries.insert(TimerEntry(seconds: seconds), at: 0) }
+        let label = label?.trimmingCharacters(in: .whitespaces)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+            entries.insert(TimerEntry(seconds: seconds, label: label?.isEmpty == false ? label : nil), at: 0)
+        }
     }
+
+    /// One-tap durations, in minutes.
+    static let presets = [1, 5, 10, 25, 60]
 
     func togglePause(_ id: UUID) {
         guard let i = entries.firstIndex(where: { $0.id == id }) else { return }
@@ -147,10 +157,15 @@ struct WheelPicker: View {
 // MARK: - Nook widget
 
 struct TimerWidget: View {
+    @Bindable var model: NotchModel
     private var store = TimersStore.shared
     @Local private var hours = 0
     @Local private var minutes = 5
     @Local private var seconds = 0
+    @Local private var label = ""
+    @FocusState private var labelFocused: Bool
+
+    init(model: NotchModel) { self.model = model }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -169,8 +184,7 @@ struct TimerWidget: View {
                         .offset(y: 25)
                 }
                 Button {
-                    store.start(seconds: Double(hours * 3600 + minutes * 60 + seconds))
-                    Haptics.tap()
+                    start(Double(hours * 3600 + minutes * 60 + seconds))
                 } label: {
                     Label("Start", systemImage: "play.fill")
                         .font(.system(size: 11, weight: .semibold))
@@ -182,10 +196,34 @@ struct TimerWidget: View {
                 .disabled(hours + minutes + seconds == 0)
             }
 
+            VStack(spacing: 6) {
+                TextField("Name (optional)", text: $label)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .padding(.horizontal, 8)
+                    .frame(height: 22)
+                    .background(Pill().fill(.white.opacity(0.08)))
+                    .focused($labelFocused)
+                    .onChange(of: labelFocused) { _, value in model.typing = value }
+                HStack(spacing: 4) {
+                    ForEach(TimersStore.presets, id: \.self) { minutes in
+                        Button { start(Double(minutes * 60)) } label: {
+                            Text(minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h")
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .padding(.horizontal, 2)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 20)
+                                .background(Pill().fill(.white.opacity(0.1)))
+                        }
+                        .buttonStyle(BouncyButtonStyle())
+                    }
+                }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 6) {
                     if store.entries.isEmpty {
-                        Text("No timers").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 30)
+                        Text("No timers").font(.system(size: 11)).foregroundStyle(.secondary).padding(.top, 12)
                     }
                     ForEach(store.entries) { entry in
                         TimerRow(entry: entry)
@@ -194,7 +232,15 @@ struct TimerWidget: View {
                 }
                 .frame(maxWidth: .infinity)
             }
+            }
         }
+    }
+
+    private func start(_ seconds: Double) {
+        store.start(seconds: seconds, label: label)
+        label = ""
+        labelFocused = false
+        Haptics.tap()
     }
 }
 
@@ -216,11 +262,16 @@ private struct TimerRow: View {
                         .animation(.linear(duration: 0.25), value: left)
                 }
                 .frame(width: 18, height: 18)
-                Text(TimersStore.format(left, showSeconds: Settings.shared.prefs.timerShowSeconds))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(countsDown: true))
-                    .foregroundStyle(entry.state == .expired ? .orange : .primary)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let label = entry.label {
+                        Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Text(TimersStore.format(left, showSeconds: Settings.shared.prefs.timerShowSeconds))
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText(countsDown: true))
+                        .foregroundStyle(entry.state == .expired ? .orange : .primary)
+                }
                 Spacer(minLength: 0)
                 if entry.state != .expired {
                     Button { store.togglePause(entry.id) } label: {
@@ -233,7 +284,7 @@ private struct TimerRow: View {
             .font(.system(size: 10, weight: .bold))
             .buttonStyle(BouncyButtonStyle())
             .padding(.horizontal, 8)
-            .frame(height: 30)
+            .frame(height: entry.label == nil ? 30 : 34)
             .background(Pill().fill(.white.opacity(0.07)))
         }
     }

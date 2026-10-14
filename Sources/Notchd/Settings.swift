@@ -17,8 +17,8 @@ enum ActivityKind: String, SlotKind {
     case bluetooth, battery, timerExpired, updateAvailable, calendar, media, tray
     var id: Self { self }
     var title: String {
-        ["media": "Media", "tray": "Tray", "calendar": "Calendar", "bluetooth": "Bluetooth",
-         "battery": "Battery", "timerExpired": "Timer Done", "updateAvailable": "New Update"][rawValue]!
+        L(["media": "Media", "tray": "Tray", "calendar": "Calendar", "bluetooth": "Bluetooth",
+         "battery": "Battery", "timerExpired": "Timer Done", "updateAvailable": "New Update"][rawValue]!)
     }
     var icon: String {
         ["media": "music.note", "tray": "tray.fill", "calendar": "calendar", "bluetooth": "headphones",
@@ -27,20 +27,24 @@ enum ActivityKind: String, SlotKind {
 }
 
 enum WidgetKind: String, SlotKind {
-    case media, calendar, todo, timer, capture
+    case media, calendar, todo, timer, notes, shortcuts, mirror, capture
     var id: Self { self }
     var title: String {
-        ["media": "Media Player", "calendar": "Calendar", "todo": "To-do List", "timer": "Timer", "capture": "Capture"][rawValue]!
+        L(["media": "Media Player", "calendar": "Calendar", "todo": "To-do List", "timer": "Timer", "notes": "Notes",
+         "shortcuts": "Shortcuts", "mirror": "Mirror", "capture": "Capture"][rawValue]!)
     }
-    var icon: String { ["media": "music.note", "calendar": "calendar", "todo": "checklist", "timer": "timer", "capture": "camera.viewfinder"][rawValue]! }
+    var icon: String {
+        ["media": "music.note", "calendar": "calendar", "todo": "checklist", "timer": "timer", "notes": "note.text",
+         "shortcuts": "square.stack.3d.up.fill", "mirror": "web.camera.fill", "capture": "camera.viewfinder"][rawValue]!
+    }
     /// Enabled by default: media, calendar, to-do and capture.
-    var defaultEnabled: Bool { self != .timer }
+    var defaultEnabled: Bool { [.media, .calendar, .todo, .capture].contains(self) }
 }
 
 enum FullscreenMode: String, Codable, CaseIterable, Identifiable {
     case allMonitors, notchedScreens, never
     var id: Self { self }
-    var title: String { ["allMonitors": "All screens", "notchedScreens": "Screens with a notch", "never": "Never"][rawValue]! }
+    var title: String { L(["allMonitors": "All screens", "notchedScreens": "Screens with a notch", "never": "Never"][rawValue]!) }
 }
 
 enum OpenNotchSize: String, Codable, CaseIterable, Identifiable {
@@ -53,7 +57,7 @@ enum MediaEffect: String, Codable, CaseIterable, Identifiable {
     case spectrograph, waves, vibratingCircle, gif
     var id: Self { self }
     var title: String {
-        ["spectrograph": "Equalizer", "waves": "Wave", "vibratingCircle": "Pulse", "gif": "Your GIF"][rawValue]!
+        L(["spectrograph": "Equalizer", "waves": "Wave", "vibratingCircle": "Pulse", "gif": "Your GIF"][rawValue]!)
     }
 }
 
@@ -116,9 +120,30 @@ struct Prefs: Codable, Equatable {
     var batteryShowFull = true
     var batteryShowLow = true
     var batteryLowThreshold = 20.0
+    // Volume & brightness HUD
+    var hudEnabled = false
+    var hudAllScreens = false
+    var hudColoredVolume = true
+    // Calendar widget
+    var calendarHidden: [String] = []  // calendar identifiers left out
+    var calendarShowAllDay = true
+    var calendarShowPast = false
+    var calendarDays = 7.0             // days shown before and after today
+    // To-do widget
+    var todoShowCompleted = true
+    var todoClearAfterDays = 7.0       // 0 = keep forever
     // Timer widget
     var timerShowSeconds = true
     var timerPlaySound = true
+    // Notes widget
+    var notesHighlightCode = true
+    // Shortcuts widget
+    var shortcuts: [String] = []
+    // Mirror widget
+    var mirrorCamera: String?          // AVCaptureDevice uniqueID, nil = default
+    var mirrorFlip = true
+    // Media
+    var mediaPinnedSource: String?     // bundle ID the widget sticks to
     // Media live activity
     var mediaEffect = MediaEffect.spectrograph
     var coloredEffects = true
@@ -159,6 +184,7 @@ final class Settings {
         didSet {
             guard prefs != oldValue else { return }
             defaults.set(try? JSONEncoder().encode(prefs), forKey: Self.key)
+            NotificationCenter.default.post(name: .prefsChanged, object: nil)
             if prefs.layoutKey != oldValue.layoutKey {
                 NotificationCenter.default.post(name: .notchLayoutChanged, object: nil)
             }
@@ -208,6 +234,19 @@ final class SettingsWindowController {
     static let shared = SettingsWindowController()
     private var window: NSWindow?
 
+    enum Pane: Int { case general, gestures, liveActivities, widgets, tray, about }
+    /// Sub-tab ("General" / "Customize") the next window opens on.
+    fileprivate static var subTab = UserDefaults.standard.integer(forKey: "debugSubTab")
+
+    /// Opens Settings on a given pane, e.g. Widgets › Layout from a widget's "Choose…" button.
+    func show(pane: Pane, customize: Bool = true) {
+        window?.close()
+        window = nil
+        Self.subTab = customize ? 1 : 0
+        show()
+        (window?.contentViewController as? NSTabViewController)?.selectedTabViewItemIndex = pane.rawValue
+    }
+
     func show() {
         if window == nil {
             let tabs = NSTabViewController()
@@ -223,9 +262,9 @@ final class SettingsWindowController {
             for (title, icon, view) in panes {
                 let host = NSHostingController(rootView: view.fixedSize())
                 host.sizingOptions = .preferredContentSize
-                host.title = title  // becomes the window title
+                host.title = L(title)  // becomes the window title
                 let item = NSTabViewItem(viewController: host)
-                item.label = title
+                item.label = L(title)
                 item.image = NSImage(systemSymbolName: icon, accessibilityDescription: title)
                 tabs.addTabViewItem(item)
             }
@@ -245,8 +284,8 @@ final class SettingsWindowController {
 // MARK: - Panes
 
 private struct Caption: View {
-    let text: String
-    init(_ text: String) { self.text = text }
+    let text: LocalizedStringKey
+    init(_ text: LocalizedStringKey) { self.text = text }
     var body: some View {
         Text(text).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
@@ -300,6 +339,19 @@ private struct GeneralPane: View {
                     }
                 }
             }
+            LabeledContent("Volume & brightness:") {
+                VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Toggle("Show them in the notch", isOn: $settings.prefs.hudEnabled)
+                        Caption("Replaces the macOS overlay while the keys are pressed. Brightness works on the built-in display.")
+                    }
+                    Group {
+                        Toggle("On every screen", isOn: $settings.prefs.hudAllScreens)
+                        Toggle("Warn near full volume (orange, then red)", isOn: $settings.prefs.hudColoredVolume)
+                    }
+                    .disabled(!settings.prefs.hudEnabled)
+                }
+            }
             LabeledContent("Inner spacing:") {
                 ValueSlider(value: $settings.prefs.contentPadding, range: 4...24)
             }
@@ -346,7 +398,7 @@ private struct GeneralPane: View {
 
 /// Continuous slider (no tick marks) that snaps to whole numbers.
 private struct ValueSlider: View {
-    var title: String?
+    var title: LocalizedStringKey?
     @Binding var value: Double
     let range: ClosedRange<Double>
 
@@ -620,7 +672,7 @@ private struct GIFOptions: View {
         .pickerStyle(.radioGroup)
     }
 
-    private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>, step: Double,
+    private func slider(_ title: LocalizedStringKey, _ value: Binding<Double>, _ range: ClosedRange<Double>, step: Double,
                         format: @escaping (Double) -> String) -> some View {
         LabeledContent(title) {
             HStack {
@@ -669,6 +721,145 @@ private struct NookPane: View {
         } customize: {
             WidgetLayoutEditor(settings: settings, maxUnits: Self.referenceMaxUnits)
         }
+    }
+}
+
+/// Per-widget settings, under the width stepper in Widgets › Layout.
+struct WidgetOptions: View {
+    let kind: WidgetKind
+    @Bindable private var settings = Settings.shared
+
+    var body: some View {
+        switch kind {
+        case .timer:
+            Toggle("Show seconds", isOn: $settings.prefs.timerShowSeconds)
+            Toggle("Chime when done", isOn: $settings.prefs.timerPlaySound)
+        case .calendar:
+            CalendarWidgetOptions()
+        case .todo:
+            Toggle("Show completed tasks", isOn: $settings.prefs.todoShowCompleted)
+            LabeledContent("Remove completed after:") {
+                HStack {
+                    Slider(value: $settings.prefs.todoClearAfterDays, in: 0...30, step: 1)
+                    Text(settings.prefs.todoClearAfterDays == 0 ? "Never" : "\(Int(settings.prefs.todoClearAfterDays))d")
+                        .monospacedDigit().frame(width: 44)
+                }
+            }
+            .onChange(of: settings.prefs.todoClearAfterDays) { TodoStore.shared.clearOld() }
+            Caption("Star a task to keep it on top.")
+        case .notes:
+            Toggle("Color code in code notes", isOn: $settings.prefs.notesHighlightCode)
+            Caption("The { } button turns a note into code: monospaced, with colors. ⌘B, ⌘I and ⌘U style rich notes.")
+        case .shortcuts:
+            ShortcutsOptions()
+        case .mirror:
+            MirrorOptions()
+        case .capture:
+            Caption("Choose an area or window for a screenshot. Use the macOS recording controls to start and stop a video. Finished captures appear in your tray.")
+        case .media:
+            if let pinned = settings.prefs.mediaPinnedSource {
+                LabeledContent("Pinned to:") {
+                    HStack {
+                        Text(MediaManager.appName(pinned))
+                        Button("Follow the system") { MediaManager.shared.pin(nil) }
+                    }
+                }
+            }
+            Caption("When several players are open, their icons show in the widget's corner. Click one to stick to it.")
+        }
+    }
+}
+
+private struct CalendarWidgetOptions: View {
+    @Bindable private var settings = Settings.shared
+    private var store = CalendarStore.shared
+
+    var body: some View {
+        Toggle("All-day events", isOn: $settings.prefs.calendarShowAllDay)
+        Toggle("Today's past events", isOn: $settings.prefs.calendarShowPast)
+        LabeledContent("Days around today:") {
+            HStack {
+                Slider(value: $settings.prefs.calendarDays, in: 1...21, step: 1)
+                Text("±\(Int(settings.prefs.calendarDays))").monospacedDigit().frame(width: 32)
+            }
+        }
+        LabeledContent("Calendars:") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if store.denied { Caption("Calendar access needed: allow it in System Settings › Privacy.") }
+                    ForEach(store.calendars, id: \.calendarIdentifier) { calendar in
+                        Toggle(isOn: shown(calendar.calendarIdentifier)) {
+                            HStack(spacing: 5) {
+                                Circle().fill(Color(cgColor: calendar.cgColor)).frame(width: 8, height: 8)
+                                Text(calendar.title).lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 110)
+        }
+        .onChange(of: settings.prefs.calendarHidden) { store.reload() }
+        .onChange(of: settings.prefs.calendarShowAllDay) { store.reload() }
+        .onChange(of: settings.prefs.calendarShowPast) { store.reload() }
+        .onChange(of: settings.prefs.calendarDays) { store.reload() }
+        .onAppear { store.reload() }
+    }
+
+    private func shown(_ id: String) -> Binding<Bool> {
+        Binding(get: { !settings.prefs.calendarHidden.contains(id) },
+                set: { on in
+                    settings.prefs.calendarHidden.removeAll { $0 == id }
+                    if !on { settings.prefs.calendarHidden.append(id) }
+                })
+    }
+}
+
+private struct ShortcutsOptions: View {
+    @Bindable private var settings = Settings.shared
+    private var store = ShortcutsStore.shared
+
+    var body: some View {
+        LabeledContent("Show:") {
+            VStack(alignment: .leading, spacing: 4) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if store.available.isEmpty { Caption("No shortcuts found. Make some in the Shortcuts app.") }
+                        ForEach(store.available, id: \.self) { name in
+                            Toggle(name, isOn: chosen(name))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 140)
+                Button("Refresh") { store.refresh() }
+            }
+        }
+        .onAppear { store.refresh() }
+        Caption("They run in the background. Tick them in the order you want them in the notch.")
+    }
+
+    private func chosen(_ name: String) -> Binding<Bool> {
+        Binding(get: { settings.prefs.shortcuts.contains(name) },
+                set: { on in
+                    settings.prefs.shortcuts.removeAll { $0 == name }
+                    if on { settings.prefs.shortcuts.append(name) }
+                })
+    }
+}
+
+private struct MirrorOptions: View {
+    @Bindable private var settings = Settings.shared
+    private let devices = Camera.devices
+
+    var body: some View {
+        Picker("Camera:", selection: $settings.prefs.mirrorCamera) {
+            Text("Default").tag(String?.none)
+            ForEach(devices, id: \.uniqueID) { Text($0.localizedName).tag(String?.some($0.uniqueID)) }
+        }
+        Toggle("Flip like a mirror", isOn: $settings.prefs.mirrorFlip)
+        Caption("Click the widget to turn the camera on. It turns off when the notch closes.")
     }
 }
 
@@ -743,10 +934,10 @@ private struct TrayPane: View {
 
 /// "General | Customize …" segmented control on top of a pane.
 private struct SubTabs<General: View, Customize: View>: View {
-    let customizeTitle: String
+    let customizeTitle: LocalizedStringKey
     @ViewBuilder let general: General
     @ViewBuilder let customize: Customize
-    @Local private var tab = UserDefaults.standard.integer(forKey: "debugSubTab")
+    @Local private var tab = SettingsWindowController.subTab
 
     var body: some View {
         VStack(spacing: 0) {
@@ -767,7 +958,7 @@ private struct SubTabs<General: View, Customize: View>: View {
 private struct SlotList<Kind: SlotKind>: View {
     @Binding var slots: [Slot<Kind>]
     @Binding var selection: Kind?
-    let caption: String
+    let caption: LocalizedStringKey
     var badge: (Slot<Kind>) -> Text? = { _ in nil }
 
     var body: some View {

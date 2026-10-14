@@ -22,6 +22,7 @@ cp Resources/Info.plist "$APP/Contents/"
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP/Contents/Info.plist"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp -R Resources/Localization/*.lproj "$APP/Contents/Resources/"
 cp -R .build/mediaremote/MediaRemoteAdapter.framework .build/mediaremote/mediaremote-adapter.pl "$APP/Contents/Resources/"
 
 # A stable identity keeps privacy permissions (Calendar, ...) across rebuilds; ad-hoc signing ties them

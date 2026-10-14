@@ -97,8 +97,8 @@ final class NotchModel {
     /// Body size (between the two "ears") for the current state.
     func size(activity: LiveActivity?) -> CGSize {
         if isOpen { return openSize }
-        if activity != nil {
-            if isPeeking {
+        if let activity {
+            if isPeeking || activity.isHUD {
                 return CGSize(width: closedSize.width + 2 * Self.activitySide + Self.peekExtraWidth,
                               height: activityRowHeight + Self.peekHeight)
             }
@@ -125,7 +125,7 @@ final class NotchModel {
 
     func radii(activity: LiveActivity?) -> (top: CGFloat, bottom: CGFloat) {
         if isOpen { return (14, 26) }
-        if activity != nil, isPeeking { return (10, 18) }
+        if let activity, isPeeking || activity.isHUD { return (10, 18) }
         if activity != nil || hovering { return (8, 13) }
         return hasNotch ? (6, 10) : (3, 4)
     }
@@ -151,6 +151,9 @@ final class NotchModel {
         withAnimation(.notchHover) { hovering = value }
     }
 }
+
+/// Looks up a string decided at runtime (a title from a table, a message) in Localizable.strings.
+func L(_ key: String) -> String { NSLocalizedString(key, comment: "") }
 
 // ponytail: the macOS 27 SDK turns `@State` into a macro whose plugin only ships with Xcode.
 // Spelling the property wrapper through an alias keeps Command Line Tools builds working; drop when building with Xcode.

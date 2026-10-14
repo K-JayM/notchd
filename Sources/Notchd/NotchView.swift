@@ -103,7 +103,7 @@ struct NotchView: View {
                         .transition(.blurPop)
                 } else if let activity {
                     ActivityView(activity: activity, notchWidth: model.closedSize.width,
-                                 rowHeight: model.activityRowHeight, peeking: model.isPeeking)
+                                 rowHeight: model.activityRowHeight, peeking: model.isPeeking || activity.isHUD)
                         .transition(.blurPop)
                 }
             }
@@ -191,6 +191,8 @@ struct ActivityView: View {
                 .symbolEffect(.bounce, value: count)
         case let .battery(percent, state):
             BatteryActivityLeading(percent: percent, state: state)
+        case let .hud(state):
+            HUDLeading(state: state)
         }
     }
 
@@ -221,6 +223,8 @@ struct ActivityView: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.6), value: count)
         case let .battery(percent, state):
             BatteryActivityTrailing(percent: percent, state: state)
+        case let .hud(state):
+            HUDTrailing(state: state)
         }
     }
 }
@@ -296,7 +300,7 @@ struct OpenNotchView: View {
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    private func tabButton(_ tab: NotchModel.Tab, icon: String, title: String, iconOnly: Bool) -> some View {
+    private func tabButton(_ tab: NotchModel.Tab, icon: String, title: LocalizedStringKey, iconOnly: Bool) -> some View {
         let selected = model.tab == tab && !model.dropping
         return Button {
             withAnimation(.spring(response: 0.32, dampingFraction: 0.7)) { model.tab = tab }
@@ -407,7 +411,10 @@ struct NookView: View {
         case .media: MediaWidget()
         case .calendar: CalendarWidget()
         case .todo: TodoWidget(model: model)
-        case .timer: TimerWidget()
+        case .timer: TimerWidget(model: model)
+        case .notes: NotesWidget(model: model)
+        case .shortcuts: ShortcutsWidget()
+        case .mirror: MirrorWidget(model: model)
         case .capture: CaptureWidget(model: model)
         }
     }

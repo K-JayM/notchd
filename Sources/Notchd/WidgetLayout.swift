@@ -122,27 +122,31 @@ struct WidgetLayoutEditor: View {
                     .font(.callout).foregroundStyle(.orange)
             }
             Text("Module library").font(.headline)
-            HStack(spacing: 8) {
-                ForEach(WidgetKind.allCases) { kind in
-                    let isEnabled = enabled.contains { $0.kind == kind }
-                    Button {
-                        selection = kind
-                        if !isEnabled { place(kind) }
-                    } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: kind.icon).font(.title3)
-                            Text(kind.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
-                            Text(isEnabled ? "In notch" : "Drag or click to add")
-                                .font(.system(size: 9)).foregroundStyle(.secondary)
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(WidgetKind.allCases) { kind in
+                        let isEnabled = enabled.contains { $0.kind == kind }
+                        Button {
+                            selection = kind
+                            if !isEnabled { place(kind) }
+                        } label: {
+                            VStack(spacing: 7) {
+                                Image(systemName: kind.icon).font(.title3)
+                                Text(kind.title).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                                Text(isEnabled ? "In notch" : "Drag or click to add")
+                                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity).frame(height: 82)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.06)))
                         }
-                        .frame(maxWidth: .infinity).frame(height: 82)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(0.06)))
+                        .buttonStyle(.plain)
+                        .frame(width: 124)
+                        .onDrag { WidgetDrag.provider(for: kind) }
+                        .help("Drag \(kind.title) into the preview or onto the notch")
                     }
-                    .buttonStyle(.plain)
-                    .onDrag { WidgetDrag.provider(for: kind) }
-                    .help("Drag \(kind.title) into the preview or onto the notch")
                 }
             }
+            .frame(height: 94)
             Divider()
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -151,13 +155,7 @@ struct WidgetLayoutEditor: View {
                         Stepper("Width: \(settings.prefs.widgets[index].units)U",
                                 value: $settings.prefs.widgets[index].units, in: selection.unitRange)
                     }
-                    if selection == .timer {
-                        Toggle("Show seconds", isOn: $settings.prefs.timerShowSeconds)
-                        Toggle("Chime when done", isOn: $settings.prefs.timerPlaySound)
-                    } else if selection == .capture {
-                        Text("Choose an area or window for a screenshot. Use the macOS recording controls to start and stop a video. Finished captures appear in your tray.")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
+                    WidgetOptions(kind: selection)
                 }
                 .frame(width: 270, alignment: .leading)
                 UnitsGauge(layout: layout)

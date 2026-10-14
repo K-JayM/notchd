@@ -157,11 +157,17 @@ final class NotchController {
         if pasteboard.types?.contains(NSPasteboard.PasteboardType("app.notchd.widget")) == true {
             model.arrangingWidgets = true
             model.tab = .nook
-        } else if pasteboard.types?.contains(where: [.fileURL, .URL, .string].contains) == true {
+        } else if pasteboard.types?.contains(where: Self.droppableTypes.contains) == true {
             model.dropping = true
         } else { return }
         model.open()
     }
+
+    /// Files, links, text, images, and files promised by apps like Photos or Mail.
+    private static let droppableTypes: [NSPasteboard.PasteboardType] = {
+        let promised = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        return [.fileURL, .URL, .string, .tiff, .png] + promised
+    }()
 
     /// Finder-style shortcuts in the Tray tab. Returns true when the key was handled.
     private func handleTrayKey(_ event: NSEvent) -> Bool {
