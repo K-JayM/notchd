@@ -223,6 +223,11 @@
 "Open All" = "Mở tất cả";
 "Unstack" = "Tách chồng";
 "AirDrop" = "AirDrop";
+"Clear All" = "Xóa tất cả";
+"Clear All?" = "Xóa tất cả?";
+"Clear All (⇧⌘⌫)" = "Xóa tất cả (⇧⌘⌫)";
+"Keep it for later" = "Giữ lại để dùng sau";
+"Send to a nearby device" = "Gửi đến thiết bị gần đó";
 "Unexpected answer from GitHub." = "Phản hồi không mong đợi từ GitHub.";
 "Download failed." = "Tải về không thành công.";
 "The download isn't a notchd build." = "Tệp đã tải về không phải bản dựng notchd.";

@@ -223,6 +223,11 @@
 "Open All" = "すべて開く";
 "Unstack" = "山を解除";
 "AirDrop" = "AirDrop";
+"Clear All" = "すべて消去";
+"Clear All?" = "すべて消去しますか？";
+"Clear All (⇧⌘⌫)" = "すべて消去（⇧⌘⌫）";
+"Keep it for later" = "あとで使うために保管";
+"Send to a nearby device" = "近くのデバイスに送信";
 "Unexpected answer from GitHub." = "GitHubから予期しない応答がありました。";
 "Download failed." = "ダウンロードに失敗しました。";
 "The download isn't a notchd build." = "ダウンロードしたファイルはnotchdのビルドではありません。";

@@ -223,6 +223,11 @@
 "Open All" = "Отвори све";
 "Unstack" = "Раздвоји";
 "AirDrop" = "AirDrop";
+"Clear All" = "Обриши све";
+"Clear All?" = "Обрисати све?";
+"Clear All (⇧⌘⌫)" = "Обриши све (⇧⌘⌫)";
+"Keep it for later" = "Сачувај за касније";
+"Send to a nearby device" = "Пошаљи на уређај у близини";
 "Unexpected answer from GitHub." = "Неочекиван одговор од GitHub-а.";
 "Download failed." = "Преузимање није успело.";
 "The download isn't a notchd build." = "Преузета датотека није notchd верзија.";

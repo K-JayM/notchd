@@ -105,14 +105,12 @@ final class NotchController {
             dragChangeCount = NSPasteboard(name: .drag).changeCount
         case .leftMouseDragged:
             detectFileDrag(at: mouse)
+            collapseDropZonesIfLeft(at: mouse)
         case .leftMouseUp where model.dropping || model.arrangingWidgets:
-            // Give the drop a moment to land before closing.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self else { return }
-                model.dropping = false
-                model.arrangingWidgets = false
-                if !model.hovering { model.close() }
-            }
+            endDrag()
+        case .mouseMoved where (model.dropping || model.arrangingWidgets) && NSEvent.pressedMouseButtons & 1 == 0:
+            // The drag ended without us seeing its mouse-up (dropped on another app): don't stay stuck open.
+            endDrag()
         case .scrollWheel:
             guard Self.scrollTargetsNotch(window: event.window, panel: panel,
                                           location: event.locationInWindow, hitRect: hitRect) else { return }
@@ -149,6 +147,28 @@ final class NotchController {
         }
     }
 
+    /// Give the drop a moment to land before closing.
+    private func endDrag() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            // A new drag started in the meantime: leave its drop zones up.
+            guard let self, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            model.dropping = false
+            model.dropTarget = nil
+            model.arrangingWidgets = false
+            if !model.hovering { model.close() }
+        }
+    }
+
+    /// Dragging back away from the drop zones folds the notch up again; coming back reopens it.
+    private func collapseDropZonesIfLeft(at mouse: NSPoint) {
+        guard model.dropping, model.isOpen, !model.locked else { return }
+        let size = model.openSize
+        let area = NSRect(x: screen.frame.midX - size.width / 2, y: screen.frame.maxY - size.height,
+                          width: size.width, height: size.height).insetBy(dx: -60, dy: -60)
+        guard !area.contains(mouse) else { return }
+        model.close()  // also clears `dropping`, so detectFileDrag can open it again
+    }
+
     private func detectFileDrag(at mouse: NSPoint) {
         let pasteboard = NSPasteboard(name: .drag)
         guard !model.dropping, !model.arrangingWidgets, pasteboard.changeCount != dragChangeCount else { return }
@@ -176,6 +196,7 @@ final class NotchController {
         let selected = store.files.filter(store.selection.contains)
         let command = event.modifierFlags.contains(.command)
         switch (command, event.charactersIgnoringModifiers?.lowercased(), event.keyCode) {
+        case (true, _, 51) where event.modifierFlags.contains(.shift): store.clear()  // ⇧⌘⌫ clears the tray
         case (true, "v", _): store.paste()
         case (true, "c", _): store.copyToPasteboard(selected)
         case (true, "a", _): store.selection = Set(store.files)

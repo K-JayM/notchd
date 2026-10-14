@@ -32,11 +32,13 @@ extension NSScreen {
 final class NotchModel {
     enum State { case closed, open }
     enum Tab { case nook, tray }
+    enum DropTarget { case tray, airDrop }
 
     var state: State = .closed
     var tab: Tab = .nook
     var hovering = false
     var dropping = false   // a file drag is happening over the notch
+    var dropTarget: DropTarget?   // the drop zone under that drag
     var arrangingWidgets = false
     var locked = false
     var typing = false
@@ -45,7 +47,7 @@ final class NotchModel {
     /// Size of the shape when nothing is going on.
     let closedSize: CGSize
 
-    private let screenWidth: CGFloat
+    let screenWidth: CGFloat
     var grid: Grid { Grid(prefs: Settings.shared.prefs) }
     var headerHeight: CGFloat { max(closedSize.height, 30) }
     var headerNotchWidth: CGFloat { hasNotch ? closedSize.width + 20 : 0 }
@@ -141,6 +143,7 @@ final class NotchModel {
         withAnimation(.notchClose) {
             state = .closed
             dropping = false
+            dropTarget = nil
             arrangingWidgets = false
             typing = false
         }

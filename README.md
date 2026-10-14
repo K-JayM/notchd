@@ -69,11 +69,12 @@ In **Settings → Widgets → Layout**, drag modules from the library into the n
 **Screenshot** opens the macOS area selector; press Space to select a window or Escape to cancel. **Record screen** opens the recording controls; choose the area, click Record, then use Stop in the menu bar. The notch hides during capture. If macOS requests Screen Recording access, allow it in System Settings. Captures use your chosen tray folder; if the tray is unavailable, the original stays in Application Support/Notchd/Captures and an alert lets you reveal it in Finder.
 
 ### Tray & drop zone
-Drag anything to the top of the screen and the notch opens into drop zones.
+Drag anything to the top of the screen and the notch opens into two drop zones: **Tray** and **AirDrop**. Drag back away and it folds up again.
 
 - **Tray**: keeps files at hand. Drag them back out to copy, or ⌥-drag to move. Paste with ⌘V (text, images and links become files).
-- **AirDrop**: send files, links or text without opening Finder.
+- **AirDrop**: drop files, links or text and the AirDrop window opens straight away to pick a nearby device.
 - Finder-style shortcuts: multi-select, Space for Quick Look, ⌘C, Delete, Return to rename.
+- **Clear All**: the trash button in the tray's corner (click twice to confirm) or ⇧⌘⌫ empties the tray.
 - Choose where tray files live, copy or move on drop, auto-clear old files. Removed files go to the Trash, never straight to oblivion.
 
 ### Make it yours

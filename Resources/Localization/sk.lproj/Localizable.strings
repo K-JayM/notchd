@@ -223,6 +223,11 @@
 "Open All" = "Otvoriť všetko";
 "Unstack" = "Rozložiť";
 "AirDrop" = "AirDrop";
+"Clear All" = "Vymazať všetko";
+"Clear All?" = "Vymazať všetko?";
+"Clear All (⇧⌘⌫)" = "Vymazať všetko (⇧⌘⌫)";
+"Keep it for later" = "Uložiť na neskôr";
+"Send to a nearby device" = "Odoslať do zariadenia v blízkosti";
 "Unexpected answer from GitHub." = "Neočakávaná odpoveď z GitHubu.";
 "Download failed." = "Sťahovanie zlyhalo.";
 "The download isn't a notchd build." = "Stiahnutý súbor nie je zostava notchd.";

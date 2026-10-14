@@ -223,6 +223,11 @@
 "Open All" = "Obre-ho tot";
 "Unstack" = "Desapila";
 "AirDrop" = "AirDrop";
+"Clear All" = "Esborra-ho tot";
+"Clear All?" = "Vols esborrar-ho tot?";
+"Clear All (⇧⌘⌫)" = "Esborra-ho tot (⇧⌘⌫)";
+"Keep it for later" = "Guarda-ho per a més tard";
+"Send to a nearby device" = "Envia a un dispositiu proper";
 "Unexpected answer from GitHub." = "Resposta inesperada de GitHub.";
 "Download failed." = "No s’ha pogut baixar.";
 "The download isn't a notchd build." = "El fitxer baixat no és una versió del notchd.";

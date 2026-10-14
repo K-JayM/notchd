@@ -223,6 +223,11 @@
 "Open All" = "Abrir todo";
 "Unstack" = "Desapilar";
 "AirDrop" = "AirDrop";
+"Clear All" = "Borrar todo";
+"Clear All?" = "¿Borrar todo?";
+"Clear All (⇧⌘⌫)" = "Borrar todo (⇧⌘⌫)";
+"Keep it for later" = "Guárdalo para más tarde";
+"Send to a nearby device" = "Enviar a un dispositivo cercano";
 "Unexpected answer from GitHub." = "Respuesta inesperada de GitHub.";
 "Download failed." = "Error en la descarga.";
 "The download isn't a notchd build." = "La descarga no es una versión de notchd.";

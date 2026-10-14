@@ -223,6 +223,11 @@
 "Open All" = "全部打開";
 "Unstack" = "取消堆疊";
 "AirDrop" = "AirDrop";
+"Clear All" = "全部清除";
+"Clear All?" = "全部清除？";
+"Clear All (⇧⌘⌫)" = "全部清除（⇧⌘⌫）";
+"Keep it for later" = "留著以後用";
+"Send to a nearby device" = "傳送到附近的裝置";
 "Unexpected answer from GitHub." = "GitHub 傳回了非預期的回應。";
 "Download failed." = "下載失敗。";
 "The download isn't a notchd build." = "下載的檔案不是 notchd 版本。";

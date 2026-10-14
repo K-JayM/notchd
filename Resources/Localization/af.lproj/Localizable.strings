@@ -223,6 +223,11 @@
 "Open All" = "Open alles";
 "Unstack" = "Ontstapel";
 "AirDrop" = "AirDrop";
+"Clear All" = "Vee alles uit";
+"Clear All?" = "Vee alles uit?";
+"Clear All (⇧⌘⌫)" = "Vee alles uit (⇧⌘⌫)";
+"Keep it for later" = "Hou dit vir later";
+"Send to a nearby device" = "Stuur na 'n toestel naby";
 "Unexpected answer from GitHub." = "Onverwagte antwoord van GitHub.";
 "Download failed." = "Aflaai het misluk.";
 "The download isn't a notchd build." = "Die aflaai is nie ’n notchd-bou nie.";

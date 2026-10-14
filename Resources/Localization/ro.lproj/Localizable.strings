@@ -223,6 +223,11 @@
 "Open All" = "Deschide tot";
 "Unstack" = "Desface grămada";
 "AirDrop" = "AirDrop";
+"Clear All" = "Șterge tot";
+"Clear All?" = "Ștergi tot?";
+"Clear All (⇧⌘⌫)" = "Șterge tot (⇧⌘⌫)";
+"Keep it for later" = "Păstrează pentru mai târziu";
+"Send to a nearby device" = "Trimite la un dispozitiv din apropiere";
 "Unexpected answer from GitHub." = "Răspuns neașteptat de la GitHub.";
 "Download failed." = "Descărcarea a eșuat.";
 "The download isn't a notchd build." = "Descărcarea nu este o versiune notchd.";

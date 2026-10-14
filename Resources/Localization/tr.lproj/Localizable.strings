@@ -223,6 +223,11 @@
 "Open All" = "Tümünü Aç";
 "Unstack" = "Yığını Dağıt";
 "AirDrop" = "AirDrop";
+"Clear All" = "Tümünü temizle";
+"Clear All?" = "Tümü temizlensin mi?";
+"Clear All (⇧⌘⌫)" = "Tümünü temizle (⇧⌘⌫)";
+"Keep it for later" = "Sonrası için sakla";
+"Send to a nearby device" = "Yakındaki bir aygıta gönder";
 "Unexpected answer from GitHub." = "GitHub’dan beklenmeyen yanıt.";
 "Download failed." = "İndirme başarısız oldu.";
 "The download isn't a notchd build." = "İndirilen dosya bir notchd derlemesi değil.";
