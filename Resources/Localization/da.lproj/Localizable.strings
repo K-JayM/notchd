@@ -223,6 +223,11 @@
 "Open All" = "Åbn alle";
 "Unstack" = "Spred ud";
 "AirDrop" = "AirDrop";
+"Clear All" = "Ryd alt";
+"Clear All?" = "Ryd alt?";
+"Clear All (⇧⌘⌫)" = "Ryd alt (⇧⌘⌫)";
+"Keep it for later" = "Gem til senere";
+"Send to a nearby device" = "Send til en enhed i nærheden";
 "Unexpected answer from GitHub." = "Uventet svar fra GitHub.";
 "Download failed." = "Hentningen mislykkedes.";
 "The download isn't a notchd build." = "Den hentede fil er ikke en notchd-version.";

@@ -223,6 +223,11 @@
 "Open All" = "Öppna alla";
 "Unstack" = "Sprid ut";
 "AirDrop" = "AirDrop";
+"Clear All" = "Rensa allt";
+"Clear All?" = "Rensa allt?";
+"Clear All (⇧⌘⌫)" = "Rensa allt (⇧⌘⌫)";
+"Keep it for later" = "Spara till senare";
+"Send to a nearby device" = "Skicka till en enhet i närheten";
 "Unexpected answer from GitHub." = "Oväntat svar från GitHub.";
 "Download failed." = "Hämtningen misslyckades.";
 "The download isn't a notchd build." = "Hämtningen är inte en notchd-version.";

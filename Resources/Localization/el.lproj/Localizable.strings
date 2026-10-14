@@ -223,6 +223,11 @@
 "Open All" = "Άνοιγμα όλων";
 "Unstack" = "Ξεστοίβαγμα";
 "AirDrop" = "AirDrop";
+"Clear All" = "Εκκαθάριση όλων";
+"Clear All?" = "Εκκαθάριση όλων;";
+"Clear All (⇧⌘⌫)" = "Εκκαθάριση όλων (⇧⌘⌫)";
+"Keep it for later" = "Κράτησέ το για αργότερα";
+"Send to a nearby device" = "Αποστολή σε κοντινή συσκευή";
 "Unexpected answer from GitHub." = "Απρόσμενη απάντηση από το GitHub.";
 "Download failed." = "Η λήψη απέτυχε.";
 "The download isn't a notchd build." = "Το αρχείο λήψης δεν είναι έκδοση του notchd.";

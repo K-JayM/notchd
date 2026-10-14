@@ -223,6 +223,11 @@
 "Open All" = "Összes megnyitása";
 "Unstack" = "Szétbontás";
 "AirDrop" = "AirDrop";
+"Clear All" = "Összes törlése";
+"Clear All?" = "Összes törlése?";
+"Clear All (⇧⌘⌫)" = "Összes törlése (⇧⌘⌫)";
+"Keep it for later" = "Megőrzés későbbre";
+"Send to a nearby device" = "Küldés egy közeli eszközre";
 "Unexpected answer from GitHub." = "Váratlan válasz a GitHubtól.";
 "Download failed." = "A letöltés sikertelen.";
 "The download isn't a notchd build." = "A letöltött fájl nem notchd-build.";

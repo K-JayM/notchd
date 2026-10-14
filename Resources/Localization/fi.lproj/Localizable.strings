@@ -223,6 +223,11 @@
 "Open All" = "Avaa kaikki";
 "Unstack" = "Levitä pino";
 "AirDrop" = "AirDrop";
+"Clear All" = "Tyhjennä kaikki";
+"Clear All?" = "Tyhjennetäänkö kaikki?";
+"Clear All (⇧⌘⌫)" = "Tyhjennä kaikki (⇧⌘⌫)";
+"Keep it for later" = "Säilytä myöhemmäksi";
+"Send to a nearby device" = "Lähetä lähellä olevaan laitteeseen";
 "Unexpected answer from GitHub." = "Odottamaton vastaus GitHubista.";
 "Download failed." = "Lataus epäonnistui.";
 "The download isn't a notchd build." = "Ladattu tiedosto ei ole notchd-versio.";

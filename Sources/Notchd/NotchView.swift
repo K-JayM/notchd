@@ -123,6 +123,7 @@ struct NotchView: View {
             Button("Quit Notchd") { NSApp.terminate(nil) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onDrop(of: DroppedItem.types, delegate: FileDropDelegate(model: model))
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
     }
@@ -239,7 +240,7 @@ struct OpenNotchView: View {
                 .frame(height: model.headerHeight)
             Group {
                 if model.dropping {
-                    DropZonesView()
+                    DropZonesView(model: model)
                 } else if model.tab == .nook {
                     NookView(model: model)
                 } else {

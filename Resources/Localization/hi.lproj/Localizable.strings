@@ -223,6 +223,11 @@
 "Open All" = "सभी खोलें";
 "Unstack" = "ढेर अलग करें";
 "AirDrop" = "AirDrop";
+"Clear All" = "सभी साफ़ करें";
+"Clear All?" = "सभी साफ़ करें?";
+"Clear All (⇧⌘⌫)" = "सभी साफ़ करें (⇧⌘⌫)";
+"Keep it for later" = "बाद के लिए रखें";
+"Send to a nearby device" = "पास के डिवाइस पर भेजें";
 "Unexpected answer from GitHub." = "GitHub से अप्रत्याशित उत्तर।";
 "Download failed." = "डाउनलोड विफल रहा।";
 "The download isn't a notchd build." = "डाउनलोड notchd बिल्ड नहीं है।";

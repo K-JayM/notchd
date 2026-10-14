@@ -223,6 +223,11 @@
 "Open All" = "Відкрити всі";
 "Unstack" = "Розкласти";
 "AirDrop" = "AirDrop";
+"Clear All" = "Очистити все";
+"Clear All?" = "Очистити все?";
+"Clear All (⇧⌘⌫)" = "Очистити все (⇧⌘⌫)";
+"Keep it for later" = "Зберегти на потім";
+"Send to a nearby device" = "Надіслати на пристрій поблизу";
 "Unexpected answer from GitHub." = "Неочікувана відповідь від GitHub.";
 "Download failed." = "Помилка завантаження.";
 "The download isn't a notchd build." = "Завантажений файл не є збіркою notchd.";

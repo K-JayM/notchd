@@ -201,7 +201,13 @@ final class TrayStore {
         }
     }
 
-    func clear() { files.forEach(remove) }
+    /// Sends every tray file to the Trash and forgets selection, piles and previews.
+    func clear() {
+        remove(files)
+        expanded = []
+        previewURL = nil
+        renaming = nil
+    }
 
     func remove(_ urls: some Sequence<URL>) {
         urls.forEach(remove)
@@ -491,6 +497,9 @@ struct TrayView: View {
     @Bindable var model: NotchModel
     @Bindable private var store = TrayStore.shared
     @Local private var targeted = false
+    @Local private var confirmingClear = false
+    /// Bumped on every arm, so an older timer can't disarm a newer confirmation.
+    @Local private var clearArm = 0
 
     init(model: NotchModel) { self.model = model }
 
@@ -531,16 +540,22 @@ struct TrayView: View {
                 .strokeBorder(.white.opacity(targeted ? 0.5 : 0.12), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
         )
         .overlay(alignment: .topTrailing) {
-            Button { store.paste() } label: {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 20)
-                    .background(Pill().fill(.white.opacity(0.08)))
+            HStack(spacing: 4) {
+                if !store.files.isEmpty {
+                    clearButton.transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+                Button { store.paste() } label: {
+                    Image(systemName: "doc.on.clipboard")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 20)
+                        .background(Pill().fill(.white.opacity(0.08)))
+                }
+                .buttonStyle(BouncyButtonStyle())
+                .help("Paste (⌘V)")
             }
-            .buttonStyle(BouncyButtonStyle())
-            .help("Paste (⌘V)")
             .padding(6)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: store.files.isEmpty)
         }
         .scaleEffect(targeted ? 1.02 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.55), value: targeted)
@@ -550,6 +565,42 @@ struct TrayView: View {
             return true
         }
         .quickLookPreview($store.previewURL, in: store.files)
+        .onChange(of: store.files.isEmpty) { _, empty in if empty { confirmingClear = false } }
+    }
+
+    /// First click arms it ("Clear All?"), a second click within 3 s empties the tray into the Trash.
+    private var clearButton: some View {
+        Button {
+            if confirmingClear {
+                confirmingClear = false
+                store.clear()
+                Haptics.tap()
+            } else {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { confirmingClear = true }
+                clearArm += 1
+                let arm = clearArm
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    guard arm == clearArm else { return }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { confirmingClear = false }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: confirmingClear ? "trash.fill" : "trash")
+                    .contentTransition(.symbolEffect(.replace))
+                if confirmingClear {
+                    Text("Clear All?").transition(.opacity.combined(with: .move(edge: .trailing)))
+                }
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(confirmingClear ? .white : .secondary)
+            .padding(.horizontal, confirmingClear ? 8 : 0)
+            .frame(minWidth: 24, minHeight: 20)
+            .background(Pill().fill(confirmingClear ? Color.red.opacity(0.85) : .white.opacity(0.08)))
+        }
+        .buttonStyle(BouncyButtonStyle())
+        .help("Clear All (⇧⌘⌫)")
+        .accessibilityLabel(Text("Clear All"))
     }
 }
 
@@ -648,7 +699,7 @@ struct TrayFileView: View {
         menu.add(String(localized: "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting(targets) }
         if targets.count == 1 { menu.add(String(localized: "Rename")) { store.renaming = url } }
         menu.add(String(localized: "Copy")) { store.copyToPasteboard(targets) }
-        menu.add(String(localized: "Send via AirDrop")) { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: targets) }
+        menu.add(String(localized: "Send via AirDrop")) { AirDrop.send(targets) }
         menu.addItem(.separator())
         menu.add(targets.count == 1 ? String(localized: "Remove from Tray")
                                     : String(localized: "Remove \(targets.count) Items from Tray")) {
@@ -720,7 +771,7 @@ struct TrayStackView: View {
         menu.add(String(localized: "Open All")) { urls.forEach { NSWorkspace.shared.open($0) } }
         menu.add(String(localized: "Show in Finder")) { NSWorkspace.shared.activateFileViewerSelecting(urls) }
         menu.add(String(localized: "Copy")) { store.copyToPasteboard(urls) }
-        menu.add(String(localized: "Send via AirDrop")) { NSSharingService(named: .sendViaAirDrop)?.perform(withItems: urls) }
+        menu.add(String(localized: "Send via AirDrop")) { AirDrop.send(urls) }
         if let key { menu.add(String(localized: "Unstack")) { store.unstack(key) } }
         menu.addItem(.separator())
         menu.add(String(localized: "Remove \(urls.count) Items from Tray")) { store.remove(urls) }
@@ -807,30 +858,100 @@ struct TrayItemInteraction: NSViewRepresentable {
 
 // MARK: - Drop zones
 
-/// Shown while something is dragged over the notch.
+/// Shown while something is dragged over the notch: stash it in the Tray, or hand it to AirDrop.
+/// The zones only draw; `FileDropDelegate` on the root view receives the drop.
 struct DropZonesView: View {
+    let model: NotchModel
+
     var body: some View {
         HStack(spacing: 12) {
-            DropZone(icon: "tray.and.arrow.down.fill", title: "Tray") { TrayStore.shared.add($0) }
-            DropZone(icon: "airplayaudio", title: "AirDrop") { items in
-                NSSharingService(named: .sendViaAirDrop)?.perform(withItems: items.map(\.shareable))
+            DropZone(icon: "tray.and.arrow.down.fill", title: "Tray", subtitle: "Keep it for later",
+                     targeted: model.dropTarget == .tray)
+            DropZone(icon: "dot.radiowaves.left.and.right", title: "AirDrop", subtitle: "Send to a nearby device",
+                     targeted: model.dropTarget == .airDrop)
+        }
+    }
+}
+
+/// Lives on the always-present root view. Drop zones that register only once the drag is already over
+/// the panel sometimes never get `draggingEntered`, so a zone could ignore the drag until you left and came back.
+/// The two zones split the open notch down the middle, so the cursor's side picks the target.
+struct FileDropDelegate: DropDelegate {
+    let model: NotchModel
+
+    func validateDrop(info: DropInfo) -> Bool {
+        model.dropping && info.hasItemsConforming(to: DroppedItem.types)
+            && !info.hasItemsConforming(to: [.notchdWidget])
+    }
+
+    func dropEntered(info: DropInfo) { track(info) }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: track(info) == nil ? .forbidden : .copy)
+    }
+    func dropExited(info: DropInfo) { setTarget(nil) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let target = track(info) else { return false }
+        setTarget(nil)
+        DroppedItem.load(info.itemProviders(for: DroppedItem.types)) { items in
+            switch target {
+            case .tray: TrayStore.shared.add(items)
+            case .airDrop: AirDrop.send(items.map(\.shareable))
             }
         }
+        Haptics.tap()
+        return true
+    }
+
+    /// `location` is in the root view's space, which fills the panel; the open notch hangs from its top centre.
+    @discardableResult
+    private func track(_ info: DropInfo) -> NotchModel.DropTarget? {
+        let target = target(at: info.location)
+        setTarget(target)
+        return target
+    }
+
+    private func target(at point: CGPoint) -> NotchModel.DropTarget? {
+        guard model.dropping, model.isOpen else { return nil }
+        let size = model.openSize
+        let mid = model.screenWidth / 2
+        guard point.y <= size.height, abs(point.x - mid) <= size.width / 2 else { return nil }
+        return point.x < mid ? .tray : .airDrop
+    }
+
+    private func setTarget(_ target: NotchModel.DropTarget?) {
+        guard model.dropTarget != target else { return }
+        if target != nil { Haptics.tap() }
+        model.dropTarget = target
+    }
+}
+
+enum AirDrop {
+    /// Opens the system AirDrop window for files, links, text or images.
+    /// It also handles AirDrop being off, offering to turn it on.
+    static func send(_ items: [Any]) {
+        guard !items.isEmpty, let service = NSSharingService(named: .sendViaAirDrop) else { return }
+        // Notchd is a background app: without activating, the AirDrop window opens behind other apps.
+        NSApp.activate(ignoringOtherApps: true)
+        service.perform(withItems: items)
     }
 }
 
 private struct DropZone: View {
     let icon: String
-    let title: String
-    let action: ([DroppedItem]) -> Void
-    @Local private var targeted = false
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
+    let targeted: Bool
 
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 26, weight: .medium))
                 .symbolEffect(.bounce, value: targeted)
-            Text(title).font(.system(size: 12, weight: .semibold))
+            VStack(spacing: 2) {
+                Text(title).font(.system(size: 12, weight: .semibold))
+                Text(subtitle).font(.system(size: 10)).opacity(0.7)
+            }
         }
         .foregroundStyle(targeted ? .white : .secondary)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -841,13 +962,5 @@ private struct DropZone: View {
         )
         .scaleEffect(targeted ? 1.05 : 1)
         .animation(.spring(response: 0.3, dampingFraction: 0.5), value: targeted)
-        .onDrop(of: DroppedItem.types, isTargeted: Binding(get: { targeted }, set: { value in
-            if value && !targeted { Haptics.tap() }
-            targeted = value
-        })) { providers in
-            DroppedItem.load(providers, completion: action)
-            Haptics.tap()
-            return true
-        }
     }
 }

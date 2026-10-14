@@ -223,6 +223,11 @@
 "Open All" = "모두 열기";
 "Unstack" = "묶음 풀기";
 "AirDrop" = "AirDrop";
+"Clear All" = "모두 지우기";
+"Clear All?" = "모두 지울까요?";
+"Clear All (⇧⌘⌫)" = "모두 지우기 (⇧⌘⌫)";
+"Keep it for later" = "나중을 위해 보관";
+"Send to a nearby device" = "근처 기기로 보내기";
 "Unexpected answer from GitHub." = "GitHub에서 예기치 않은 응답을 받았습니다.";
 "Download failed." = "다운로드에 실패했습니다.";
 "The download isn't a notchd build." = "다운로드한 파일이 notchd 빌드가 아닙니다.";
