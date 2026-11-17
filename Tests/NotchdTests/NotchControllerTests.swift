@@ -44,3 +44,20 @@ import Testing
     #expect(NotchController.scrollViewContains(NSPoint(x: 200, y: 180), in: content))
     #expect(!NotchController.scrollViewContains(NSPoint(x: 200, y: 30), in: content))
 }
+
+@Test func sidewaysSwipesOnlySkipTracksOnHomeOrTheClosedNotch() {
+    #expect(NotchController.sidewaysSwipeChangesTrack(isOpen: false, tab: .tray, dropping: false))
+    #expect(NotchController.sidewaysSwipeChangesTrack(isOpen: true, tab: .nook, dropping: false))
+    #expect(!NotchController.sidewaysSwipeChangesTrack(isOpen: true, tab: .tray, dropping: false))
+    #expect(!NotchController.sidewaysSwipeChangesTrack(isOpen: true, tab: .clipboard, dropping: false))
+    #expect(!NotchController.sidewaysSwipeChangesTrack(isOpen: true, tab: .nook, dropping: true))
+}
+
+@Test func volumeKeysAreRecognised() {
+    // data1 for "volume up, key down" as macOS sends it: key 0 in the high word, 0x0A = down.
+    #expect(HUDCenter.volumeKey(subtype: 8, data1: 0x0000_0A00)?.down == true)
+    #expect(HUDCenter.volumeKey(subtype: 8, data1: 0x0001_0B00)?.down == false)   // volume down, key up
+    #expect(HUDCenter.volumeKey(subtype: 8, data1: 0x0007_0A00)?.code == 7)       // mute
+    #expect(HUDCenter.volumeKey(subtype: 8, data1: 0x0010_0A00) == nil)           // play/pause
+    #expect(HUDCenter.volumeKey(subtype: 7, data1: 0x0000_0A00) == nil)
+}

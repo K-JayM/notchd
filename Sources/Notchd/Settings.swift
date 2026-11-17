@@ -139,7 +139,8 @@ struct Prefs: Codable, Equatable {
     var batteryShowLow = true
     var batteryLowThreshold = 20.0
     // Volume & brightness HUD
-    var hudEnabled = false
+    var volumeInNotch = true           // show changes in the notch
+    var hudEnabled = false             // also pause the system's own overlay
     var hudAllScreens = false
     var hudColoredVolume = true
     var hudKeyboard = true
@@ -211,6 +212,22 @@ struct Prefs: Codable, Equatable {
 
     func isEnabled(_ kind: ActivityKind) -> Bool { activities.contains { $0.kind == kind && $0.enabled } }
 
+    /// Numbers outside what the sliders allow (a hand-edited or damaged file) would trap in ranges,
+    /// date maths and layout, so they're pulled back in.
+    mutating func sanitize() {
+        func clamp(_ key: WritableKeyPath<Prefs, Double>, _ range: ClosedRange<Double>) {
+            let value = self[keyPath: key]
+            self[keyPath: key] = value.isFinite ? min(max(value, range.lowerBound), range.upperBound) : range.lowerBound
+        }
+        clamp(\.notchWidthFineTune, -20...20); clamp(\.notchHeightFineTune, -20...20)
+        clamp(\.handleWidth, 100...300); clamp(\.handleHeight, 4...20); clamp(\.contentPadding, 4...24)
+        clamp(\.inactivityTimeout, 1...30); clamp(\.calendarMinutesBefore, 1...60); clamp(\.calendarDays, 1...21)
+        clamp(\.batteryLowThreshold, 5...50); clamp(\.todoClearAfterDays, 0...30); clamp(\.trayAutoClearDays, 0...30)
+        clamp(\.albumCornerRadius, 0...20); clamp(\.gifScale, 0.5...2); clamp(\.gifOffsetX, -10...10); clamp(\.gifOffsetY, -10...10)
+        clamp(\.pomodoroWork, 5...90); clamp(\.pomodoroShortBreak, 1...30); clamp(\.pomodoroLongBreak, 5...60)
+        clamp(\.pomodoroRounds, 2...8); clamp(\.clipboardLimit, 20...500)
+    }
+
     /// Fields that change window geometry and require rebuilding the notch windows.
     var layoutKey: [Double] {
         [notchWidthFineTune, notchHeightFineTune, enableOnNonNotchScreens ? 1 : 0, handleWidth, handleHeight]
@@ -244,14 +261,46 @@ final class Settings {
     }
 
     /// Stored values are merged over the defaults so newly added fields don't wipe existing prefs.
+    /// A value this version can't read (saved by a newer or older one, or damaged) only resets itself:
+    /// it used to throw away every setting, silently.
     private static func load(from defaults: UserDefaults) -> Prefs {
         guard let stored = defaults.data(forKey: key),
-              let storedDict = try? JSONSerialization.jsonObject(with: stored) as? [String: Any],
-              let defaults = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Prefs())) as? [String: Any],
-              let merged = try? JSONSerialization.data(withJSONObject: defaults.merging(storedDict) { $1 }),
-              var prefs = try? JSONDecoder().decode(Prefs.self, from: merged) else { return Prefs() }
+              var dict = try? JSONSerialization.jsonObject(with: stored) as? [String: Any],
+              let base = try? JSONSerialization.jsonObject(with: JSONEncoder().encode(Prefs())) as? [String: Any]
+        else { return Prefs() }
+        // Activities and widgets this version doesn't know (or listed twice) are dropped, not fatal.
+        func clean(_ name: String, _ known: [String]) {
+            var seen = Set<String>()
+            dict[name] = (dict[name] as? [[String: Any]])?.filter {
+                ($0["kind"] as? String).map { known.contains($0) && seen.insert($0).inserted } ?? false
+            }
+            if dict[name] == nil { dict.removeValue(forKey: name) }
+        }
+        clean("activities", ActivityKind.allCases.map(\.rawValue))
+        clean("widgets", WidgetKind.allCases.map(\.rawValue))
+        if let hidden = dict["hiddenInFullscreen"] as? [String] {
+            dict["hiddenInFullscreen"] = hidden.filter { ActivityKind(rawValue: $0) != nil }
+        }
+        func decode(_ dict: [String: Any]) -> Prefs? {
+            (try? JSONSerialization.data(withJSONObject: dict)).flatMap { try? JSONDecoder().decode(Prefs.self, from: $0) }
+        }
+        var merged = base.merging(dict) { $1 }
+        if decode(merged) == nil {
+            merged = base
+            for (name, value) in dict {
+                var trial = merged
+                trial[name] = value
+                if decode(trial) != nil { merged = trial } else { NSLog("[Settings] couldn't read \"%@\": using its default", name) }
+            }
+        }
+        guard var prefs = decode(merged) else {
+            NSLog("[Settings] stored settings unreadable: kept a copy, starting from defaults")
+            defaults.set(stored, forKey: key + ".unreadable")
+            return Prefs()
+        }
         prefs.activities = Slot.normalized(prefs.activities)
         prefs.widgets = Slot.normalized(prefs.widgets)
+        prefs.sanitize()
         return prefs
     }
 
@@ -317,7 +366,7 @@ final class SettingsWindowController {
                 tabs.addTabViewItem(item)
             }
             // Dev: `--args -debugSettingsTab 2 -debugSubTab 1` opens a given pane (launch args land in UserDefaults).
-            tabs.selectedTabViewItemIndex = UserDefaults.standard.integer(forKey: "debugSettingsTab")
+            tabs.selectedTabViewItemIndex = min(max(UserDefaults.standard.integer(forKey: "debugSettingsTab"), 0), panes.count - 1)
             let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable, .miniaturizable]
             window.isReleasedWhenClosed = false
@@ -390,15 +439,19 @@ private struct GeneralPane: View {
             LabeledContent("Volume & brightness:") {
                 VStack(alignment: .leading, spacing: 6) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Toggle("Show them in the notch", isOn: $settings.prefs.hudEnabled)
-                        Caption("Replaces the macOS overlay while the keys are pressed. Brightness works on the built-in display.")
+                        Toggle("Show them in the notch", isOn: $settings.prefs.volumeInNotch)
+                        Caption("The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display.")
                     }
                     Group {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Toggle("Hide the macOS overlay", isOn: $settings.prefs.hudEnabled)
+                            Caption("Pauses the system's own volume and brightness pop-up while notchd is running.")
+                        }
                         Toggle("Keyboard backlight too", isOn: $settings.prefs.hudKeyboard)
                         Toggle("On every screen", isOn: $settings.prefs.hudAllScreens)
                         Toggle("Warn near full volume (orange, then red)", isOn: $settings.prefs.hudColoredVolume)
                     }
-                    .disabled(!settings.prefs.hudEnabled)
+                    .disabled(!settings.prefs.volumeInNotch)
                 }
             }
             LabeledContent("Keep awake:") {
@@ -1137,7 +1190,7 @@ private struct CalendarWidgetOptions: View {
                     ForEach(store.calendars, id: \.calendarIdentifier) { calendar in
                         Toggle(isOn: shown(calendar.calendarIdentifier)) {
                             HStack(spacing: 5) {
-                                Circle().fill(Color(cgColor: calendar.cgColor)).frame(width: 8, height: 8)
+                                Circle().fill((calendar.cgColor as CGColor?).map { Color(cgColor: $0) } ?? .gray).frame(width: 8, height: 8)
                                 Text(calendar.title).lineLimit(1)
                             }
                         }
@@ -1324,8 +1377,14 @@ private struct TrayRulesEditor: View {
                     .frame(width: 270, alignment: .leading)
             }
             Group {
-                if let index = settings.prefs.trayRules.firstIndex(where: { $0.id == selection }) {
-                    TrayRuleForm(rule: $settings.prefs.trayRules[index])
+                // Bound by id, not position: a field still being edited when its rule is deleted
+                // would otherwise write through a stale index (out of range, or into the next rule).
+                if let id = selection, settings.prefs.trayRules.contains(where: { $0.id == id }) {
+                    TrayRuleForm(rule: Binding(
+                        get: { settings.prefs.trayRules.first { $0.id == id } ?? TrayRule() },
+                        set: { new in
+                            if let i = settings.prefs.trayRules.firstIndex(where: { $0.id == id }) { settings.prefs.trayRules[i] = new }
+                        })).id(id)
                 } else {
                     VStack(spacing: 8) {
                         Image(systemName: "wand.and.stars").font(.system(size: 28)).foregroundStyle(.secondary)
@@ -1408,14 +1467,14 @@ private struct TrayRuleForm: View {
             // Pickers keep their label inline: in a Form it would otherwise move to the label column.
             case let .convert(format):
                 Text("Convert to")
-                Picker("", selection: Binding(get: { format }, set: { rule.steps[index] = .convert($0) })) {
+                Picker("", selection: Binding(get: { format }, set: { setStep(index, .convert($0)) })) {
                     ForEach(TrayActions.ImageFormat.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()
             case let .script(name):
                 Text("Run")
-                Picker("", selection: Binding(get: { name }, set: { rule.steps[index] = .script($0) })) {
+                Picker("", selection: Binding(get: { name }, set: { setStep(index, .script($0)) })) {
                     if !scripts.contains(name) { Text("Choose…").tag(name) }
                     ForEach(scripts, id: \.self) { Text($0).tag($0) }
                 }
@@ -1436,7 +1495,7 @@ private struct TrayRuleForm: View {
                 Text(rule.steps[index].title)
             }
             Spacer(minLength: 4)
-            Button { rule.steps.remove(at: index) } label: { Image(systemName: "minus.circle") }
+            Button { if rule.steps.indices.contains(index) { rule.steps.remove(at: index) } } label: { Image(systemName: "minus.circle") }
                 .buttonStyle(.borderless)
                 .help("Remove Step")
         }
@@ -1456,7 +1515,8 @@ private struct TrayRuleForm: View {
     private func megabytes(_ key: WritableKeyPath<TrayRule, Int?>) -> Binding<Double?> {
         Binding(
             get: { rule[keyPath: key].map { Double($0) / 1_000_000 } },
-            set: { rule[keyPath: key] = $0.map { Int($0 * 1_000_000) } }
+            // Clamped: a huge or pasted number would overflow Int.
+            set: { rule[keyPath: key] = $0.flatMap { $0.isFinite ? Int(min(max($0, 0), 1e9) * 1_000_000) : nil } }
         )
     }
 
@@ -1466,7 +1526,13 @@ private struct TrayRuleForm: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = L("Use Folder")
-        if panel.runModal() == .OK, let url = panel.url { rule.steps[index] = .saveTo(url.path) }
+        if panel.runModal() == .OK, let url = panel.url { setStep(index, .saveTo(url.path)) }
+    }
+
+    /// The step may have been removed while a picker or panel was open.
+    private func setStep(_ index: Int, _ step: TrayRule.Step) {
+        guard rule.steps.indices.contains(index) else { return }
+        rule.steps[index] = step
     }
 }
 
@@ -1551,6 +1617,7 @@ struct UnitsGauge: View {
 
 private struct AboutPane: View {
     @Bindable private var settings = Settings.shared
+    @Local private var crashReports = CrashReporter.reports().count
     private var updater = Updater.shared
     private var info: [String: Any] { Bundle.main.infoDictionary ?? [:] }
 
@@ -1591,6 +1658,15 @@ private struct AboutPane: View {
             Link("github.com/\(Updater.repo)", destination: URL(string: "https://github.com/\(Updater.repo)")!)
                 .font(.callout)
                 .padding(.top, 6)
+
+            Divider().padding(.vertical, 6)
+            HStack {
+                Text(crashReports == 0 ? "No crash reports" : crashReports == 1 ? "1 crash report" : "\(crashReports) crash reports")
+                Button("Show in Finder") { CrashReporter.showInFinder() }
+            }
+            .font(.callout)
+            Caption("If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere.")
+                .multilineTextAlignment(.center)
         }
         .padding(30)
         .frame(width: 520)

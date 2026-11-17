@@ -136,9 +136,9 @@ struct HUDState: Equatable {
     var muted = false
 }
 
-/// Replaces the system volume/brightness overlay with one that grows out of the notch.
+/// Shows volume, brightness and keyboard backlight changes growing out of the notch.
 /// Volume changes come from CoreAudio; brightness is sampled (there's no public change notification).
-/// The system overlay (OSDUIHelper) is paused with SIGSTOP while this is on and resumed when it's off.
+/// Optionally the system overlay (OSDUIHelper) is paused with SIGSTOP meanwhile, and resumed when that's off.
 @Observable
 final class HUDCenter {
     static let shared = HUDCenter()
@@ -149,11 +149,21 @@ final class HUDCenter {
     private var lastBrightness: Double?
     private var lastKeyboard: Double?
     private var suppressTimer: Timer?
+    private var keyMonitor: Any?
+    private var started = false
 
     func start() {
+        guard !started else { return }
+        started = true
         AudioVolume.shared.onChange = { [weak self] in self?.volumeChanged() }
+        // Volume keys at the top or bottom of the range change nothing, so CoreAudio stays silent:
+        // watch the keys themselves too, so the notch still answers the press.
+        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .systemDefined) { [weak self] event in
+            guard let key = Self.volumeKey(subtype: Int(event.subtype.rawValue), data1: event.data1), key.down else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self?.volumeChanged() }
+        }
         // A crash while it was on would leave the system overlay paused for good: resume it at launch.
-        if !Settings.shared.prefs.hudEnabled { Self.systemOverlay(paused: false) }
+        if !hidesSystemOverlay { Self.systemOverlay(paused: false) }
         apply()
         NotificationCenter.default.addObserver(forName: .prefsChanged, object: nil, queue: .main) { [weak self] _ in
             self?.apply()
@@ -163,39 +173,55 @@ final class HUDCenter {
     }
 
     private var enabled = false
+    private var hiding = false
+    private var hidesSystemOverlay: Bool { Settings.shared.prefs.volumeInNotch && Settings.shared.prefs.hudEnabled }
 
-    /// Follows the setting: starts or stops sampling and the system overlay.
+    /// Media keys arrive as "system defined" events: subtype 8, key code in the high word of data1,
+    /// 0x0A in the next byte while the key is down. 0 = volume up, 1 = volume down, 7 = mute.
+    static func volumeKey(subtype: Int, data1: Int) -> (code: Int, down: Bool)? {
+        guard subtype == 8 else { return nil }
+        let code = (data1 & 0xFFFF_0000) >> 16
+        guard [0, 1, 7].contains(code) else { return nil }
+        return (code, (data1 & 0xFF00) >> 8 == 0x0A)
+    }
+
+    /// Follows the settings: starts or stops sampling, and pauses or resumes the system overlay.
     private func apply() {
-        let on = Settings.shared.prefs.hudEnabled
-        if on {
-            Self.systemOverlay(paused: true)
-            if brightnessTimer == nil {
-                lastBrightness = Brightness.current()
-                lastKeyboard = KeyboardBacklight.current()
-                // ponytail: 5 Hz sampling; swap for a key event tap if it ever costs anything measurable.
-                brightnessTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-                    self?.sampleBrightness()
-                    self?.sampleKeyboard()
-                }
-            }
+        let on = Settings.shared.prefs.volumeInNotch
+        let hide = hidesSystemOverlay
+        if hide {
+            if !hiding { Self.systemOverlay(paused: true) }
             // macOS relaunches the overlay helper now and then: pause it again.
             if suppressTimer == nil {
                 suppressTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
                     Self.systemOverlay(paused: true)
                 }
             }
-        } else if enabled {
-            brightnessTimer?.invalidate()
-            brightnessTimer = nil
+        } else if hiding {
             suppressTimer?.invalidate()
             suppressTimer = nil
             Self.systemOverlay(paused: false)
         }
+        hiding = hide
+        if on {
+            if brightnessTimer == nil {
+                lastBrightness = Brightness.current()
+                lastKeyboard = KeyboardBacklight.current()
+                // ponytail: 5 Hz sampling; swap for a key event tap if it ever costs anything measurable.
+                brightnessTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                    self?.sample()
+                }
+            }
+        } else if enabled {
+            brightnessTimer?.invalidate()
+            brightnessTimer = nil
+        }
         enabled = on
     }
 
+    /// On quit: never leave the system overlay paused behind us.
     func stop() {
-        if enabled { Self.systemOverlay(paused: false) }
+        if hiding { Self.systemOverlay(paused: false, wait: true) }
     }
 
     private func volumeChanged() {
@@ -203,8 +229,30 @@ final class HUDCenter {
         show(HUDState(kind: .volume, level: level, muted: AudioVolume.shared.muted))
     }
 
-    private func sampleBrightness() {
-        guard let value = Brightness.current() else { return }
+    private static let sampleQueue = DispatchQueue(label: "notchd.hud.sample", qos: .utility)
+    private var sampling = false
+
+    /// The readings ask system services, which can stall (around wake, or while they restart):
+    /// take them off the main thread, and skip a turn while the last one is still out.
+    private func sample() {
+        guard !sampling else { return }
+        sampling = true
+        let keyboard = Settings.shared.prefs.hudKeyboard
+        Self.sampleQueue.async { [weak self] in
+            let brightness = Brightness.current()
+            let backlight = keyboard ? KeyboardBacklight.current() : nil
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.sampling = false
+                guard self.enabled else { return }
+                self.sampleBrightness(brightness)
+                self.sampleKeyboard(backlight)
+            }
+        }
+    }
+
+    private func sampleBrightness(_ reading: Double?) {
+        guard let value = reading else { return }
         defer { lastBrightness = value }
         guard let last = lastBrightness else { return }
         // Keys move brightness in big steps; auto-brightness drifts slowly. Only show the former.
@@ -214,8 +262,8 @@ final class HUDCenter {
     }
 
     /// The system overlay is paused while ours is on, so the keyboard backlight needs its own too.
-    private func sampleKeyboard() {
-        guard Settings.shared.prefs.hudKeyboard, let value = KeyboardBacklight.current() else { return }
+    private func sampleKeyboard(_ reading: Double?) {
+        guard Settings.shared.prefs.hudKeyboard, let value = reading else { return }
         defer { lastKeyboard = value }
         guard let last = lastKeyboard else { return }
         // The backlight also fades out by itself when you stop typing: only show changes you just made.
@@ -235,23 +283,30 @@ final class HUDCenter {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
     }
 
+    /// One at a time and in order, off the main thread: these tools can take a moment.
+    private static let overlayQueue = DispatchQueue(label: "notchd.overlay")
+
     /// Pauses (SIGSTOP) or resumes the process that draws the system overlay.
-    private static func systemOverlay(paused: Bool) {
-        if paused {
-            // It only runs once it has shown something: start it so there is a process to pause.
-            run("/bin/launchctl", ["kickstart", "gui/\(getuid())/com.apple.OSDUIHelper"])
-            run("/usr/bin/killall", ["-STOP", "OSDUIHelper"])
-        } else {
-            run("/usr/bin/killall", ["-CONT", "OSDUIHelper"])
+    private static func systemOverlay(paused: Bool, wait: Bool = false) {
+        let work = {
+            if paused {
+                // It only runs once it has shown something: start it so there is a process to pause.
+                run("/bin/launchctl", ["kickstart", "gui/\(getuid())/com.apple.OSDUIHelper"])
+                run("/usr/bin/killall", ["-STOP", "OSDUIHelper"])
+            } else {
+                run("/usr/bin/killall", ["-CONT", "OSDUIHelper"])
+            }
         }
+        if wait { overlayQueue.sync(execute: work) } else { overlayQueue.async(execute: work) }
     }
 
     private static func run(_ path: String, _ args: [String]) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: path)
         process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        try? process.run()
+        guard (try? process.run()) != nil else { return }  // waiting on a process that never started throws
         process.waitUntilExit()
     }
 }
@@ -266,22 +321,20 @@ struct HUDLeading: View {
     let state: HUDState
 
     var body: some View {
-        Image(systemName: icon)
+        // The waves fill in with the level, and the icon gives a little bounce on every step.
+        Image(systemName: icon, variableValue: state.level)
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(.white)
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 22)
+            .symbolEffect(.bounce, value: Int((state.level * 16).rounded()))
+            .frame(width: 24)
     }
 
     private var icon: String {
         switch state.kind {
         case .brightness: state.level < 0.5 ? "sun.min.fill" : "sun.max.fill"
         case .keyboard: state.level == 0 ? "light.min" : "light.max"
-        case .volume:
-            if state.muted || state.level == 0 { "speaker.slash.fill" }
-            else if state.level < 0.33 { "speaker.wave.1.fill" }
-            else if state.level < 0.66 { "speaker.wave.2.fill" }
-            else { "speaker.wave.3.fill" }
+        case .volume: state.muted || state.level == 0 ? "speaker.slash.fill" : "speaker.wave.3.fill"
         }
     }
 }
@@ -308,8 +361,10 @@ struct HUDBar: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.15))
                 Capsule()
-                    .fill(color(level))
-                    .frame(width: max(6, geo.size.width * level))
+                    .fill(LinearGradient(colors: [color(level).opacity(0.75), color(level)],
+                                         startPoint: .leading, endPoint: .trailing))
+                    .frame(width: max(6, geo.size.width * min(max(level, 0), 1)))
+                    .shadow(color: color(level).opacity(0.6), radius: 4)
                     .opacity(level > 0 ? 1 : 0)
             }
         }
