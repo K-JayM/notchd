@@ -529,10 +529,10 @@
 "Remove Step" = "단계 제거";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "음량이나 밝기를 변경하면 노치가 커지면서 레벨을 표시합니다. 밝기는 내장 디스플레이에서 작동합니다.";
 "Hide the macOS overlay" = "macOS 오버레이 가리기";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "notchd가 실행되는 동안 시스템 자체의 음량 및 밝기 팝업을 일시 정지합니다.";
 "No crash reports" = "충돌 리포트 없음";
 "1 crash report" = "충돌 리포트 1개";
 "%lld crash reports" = "충돌 리포트 %lld개";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "notchd가 충돌하거나 멈추면 리포트가 이 Mac의 ~/Library/Logs/Notchd에 저장됩니다. 어디에도 전송되지 않습니다.";
 "Finish your capture, then try again." = "캡처를 마친 다음 다시 시도하십시오.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml을 텍스트로 읽을 수 없어 Notchd가 변경하지 않았습니다.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd가 음량 및 밝기 키를 직접 처리하므로 macOS 자체 팝업이 표시되지 않습니다. 손쉬운 사용 접근 권한이 필요합니다.";

@@ -529,10 +529,10 @@
 "Remove Step" = "移除步骤";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "调整音量或亮度时，刘海会扩展以显示当前级别。亮度适用于内建显示器。";
 "Hide the macOS overlay" = "隐藏 macOS 浮层";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "notchd 运行期间，暂停系统自带的音量和亮度弹出提示。";
 "No crash reports" = "没有崩溃报告";
 "1 crash report" = "1 份崩溃报告";
 "%lld crash reports" = "%lld 份崩溃报告";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "如果 notchd 崩溃或卡死，报告会存储在这台 Mac 上的 ~/Library/Logs/Notchd 中。不会发送到任何地方。";
 "Finish your capture, then try again." = "请先完成截屏或录屏，然后重试。";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml 无法作为文本读取，因此 Notchd 未作改动。";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd 自行处理音量键和亮度键，因此 macOS 不会再显示自带的弹出提示。需要辅助功能访问权限。";

@@ -529,10 +529,10 @@
 "Remove Step" = "Odstrániť krok";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "Pri zmene hlasitosti alebo jasu sa výrez zväčší a ukáže úroveň. Jas funguje na vstavanom displeji.";
 "Hide the macOS overlay" = "Skryť prekrytie macOS";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "Pozastaví systémový ukazovateľ hlasitosti a jasu, kým notchd beží.";
 "No crash reports" = "Žiadne hlásenia o páde";
 "1 crash report" = "1 hlásenie o páde";
 "%lld crash reports" = "Hlásenia o páde: %lld";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "Ak notchd spadne alebo zamrzne, hlásenie sa uloží na tomto Macu do priečinka ~/Library/Logs/Notchd. Nič sa nikam neodosiela.";
 "Finish your capture, then try again." = "Dokončite snímanie a skúste to znova.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml sa nepodarilo prečítať ako text, a tak ho Notchd nechal tak.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd obsluhuje klávesy hlasitosti a jasu sám, takže macOS nikdy nezobrazí vlastný ukazovateľ. Vyžaduje prístup k prístupnosti.";

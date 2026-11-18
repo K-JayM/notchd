@@ -529,10 +529,10 @@
 "Remove Step" = "Elimina el pas";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "L’osca creix per mostrar el nivell quan canvies el volum o la brillantor. La brillantor funciona a la pantalla integrada.";
 "Hide the macOS overlay" = "Amaga l’indicador del macOS";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "Posa en pausa l’indicador de volum i brillantor del sistema mentre el notchd s’està executant.";
 "No crash reports" = "Cap informe d’error";
 "1 crash report" = "1 informe d’error";
 "%lld crash reports" = "%lld informes d’error";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "Si el notchd falla o es bloqueja, es desa un informe en aquest Mac, a ~/Library/Logs/Notchd. No s’envia res enlloc.";
 "Finish your capture, then try again." = "Acaba la captura i torna-ho a provar.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml no s’ha pogut llegir com a text, així que el Notchd no l’ha modificat.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "El notchd gestiona ell mateix les tecles de volum i brillantor, de manera que el macOS no mostra mai el seu indicador. Cal accés d’Accessibilitat.";

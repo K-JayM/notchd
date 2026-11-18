@@ -61,3 +61,20 @@ import Testing
     #expect(HUDCenter.volumeKey(subtype: 8, data1: 0x0010_0A00) == nil)           // play/pause
     #expect(HUDCenter.volumeKey(subtype: 7, data1: 0x0000_0A00) == nil)
 }
+
+@Test func volumeKeysStepLikeMacOS() {
+    // Up and down move one of 16 steps and stop at the ends.
+    #expect(HUDCenter.volumeAfterKey(0, level: 0.5, muted: false, fine: false).level == 0.5625)
+    #expect(HUDCenter.volumeAfterKey(1, level: 0.5, muted: false, fine: false).level == 0.4375)
+    #expect(HUDCenter.volumeAfterKey(0, level: 1, muted: false, fine: false).level == 1)
+    #expect(HUDCenter.volumeAfterKey(1, level: 0, muted: false, fine: false).level == 0)
+    // An in-between level (set with a slider) snaps to the grid first.
+    #expect(HUDCenter.volumeAfterKey(0, level: 0.63, muted: false, fine: false).level == 0.6875)
+    // ⌥⇧ moves a quarter step.
+    #expect(HUDCenter.volumeAfterKey(0, level: 0.5, muted: false, fine: true).level == 0.515625)
+    // Mute toggles and keeps the level; volume up while muted only unmutes.
+    #expect(HUDCenter.volumeAfterKey(7, level: 0.5, muted: false, fine: false) == (0.5, true))
+    #expect(HUDCenter.volumeAfterKey(7, level: 0.5, muted: true, fine: false) == (0.5, false))
+    #expect(HUDCenter.volumeAfterKey(0, level: 0.5, muted: true, fine: false) == (0.5, false))
+    #expect(HUDCenter.volumeAfterKey(1, level: 0.5, muted: true, fine: false) == (0.4375, true))
+}

@@ -529,10 +529,10 @@
 "Remove Step" = "Xóa bước";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "Tai thỏ mở rộng để hiển thị mức khi bạn thay đổi âm lượng hoặc độ sáng. Độ sáng hoạt động trên màn hình tích hợp.";
 "Hide the macOS overlay" = "Ẩn lớp phủ của macOS";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "Tạm dừng cửa sổ bật lên âm lượng và độ sáng của hệ thống trong khi notchd đang chạy.";
 "No crash reports" = "Không có báo cáo sự cố";
 "1 crash report" = "1 báo cáo sự cố";
 "%lld crash reports" = "%lld báo cáo sự cố";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "Nếu notchd gặp sự cố hoặc bị treo, một báo cáo sẽ được lưu trên máy Mac này, trong ~/Library/Logs/Notchd. Không có gì được gửi đi đâu cả.";
 "Finish your capture, then try again." = "Hãy hoàn tất việc chụp màn hình, rồi thử lại.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "Không thể đọc ~/.codex/config.toml dưới dạng văn bản nên Notchd không thay đổi tệp này.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd tự xử lý các phím âm lượng và độ sáng, nên macOS không bao giờ hiển thị cửa sổ bật lên của riêng nó. Cần quyền truy cập Trợ năng.";

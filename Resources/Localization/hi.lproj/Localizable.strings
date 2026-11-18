@@ -529,10 +529,10 @@
 "Remove Step" = "चरण हटाएँ";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "वॉल्यूम या ब्राइटनेस बदलने पर नॉच बड़ा होकर स्तर दिखाता है। ब्राइटनेस बिल्ट-इन डिस्प्ले पर काम करती है।";
 "Hide the macOS overlay" = "macOS ओवरले छिपाएँ";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "notchd के चलते रहने तक सिस्टम के अपने वॉल्यूम और ब्राइटनेस पॉप-अप को रोके रखता है।";
 "No crash reports" = "कोई क्रैश रिपोर्ट नहीं";
 "1 crash report" = "1 क्रैश रिपोर्ट";
 "%lld crash reports" = "%lld क्रैश रिपोर्ट";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "अगर notchd क्रैश या फ़्रीज़ होता है, तो इस Mac पर ~/Library/Logs/Notchd में एक रिपोर्ट सहेजी जाती है। कहीं कुछ नहीं भेजा जाता।";
 "Finish your capture, then try again." = "अपना कैप्चर पूरा करें, फिर दोबारा कोशिश करें।";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml को टेक्स्ट के रूप में पढ़ा नहीं जा सका, इसलिए Notchd ने इसे नहीं छुआ।";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd वॉल्यूम और ब्राइटनेस कुंजियों को ख़ुद सँभालता है, इसलिए macOS अपना पॉप-अप कभी नहीं दिखाता। ऐक्सेसिबिलिटी ऐक्सेस आवश्यक है।";

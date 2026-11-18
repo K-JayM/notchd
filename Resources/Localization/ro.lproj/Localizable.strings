@@ -529,10 +529,10 @@
 "Remove Step" = "Elimină pasul";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "Notch-ul se mărește pentru a afișa nivelul când modifici volumul sau luminozitatea. Luminozitatea funcționează pe ecranul încorporat.";
 "Hide the macOS overlay" = "Ascunde suprapunerea macOS";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "Pune în pauză fereastra de volum și luminozitate a sistemului cât timp notchd rulează.";
 "No crash reports" = "Niciun raport de eroare";
 "1 crash report" = "1 raport de eroare";
 "%lld crash reports" = "Rapoarte de eroare: %lld";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "Dacă notchd se închide neașteptat sau se blochează, un raport este salvat pe acest Mac, în ~/Library/Logs/Notchd. Nimic nu este trimis nicăieri.";
 "Finish your capture, then try again." = "Finalizează captura, apoi încearcă din nou.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml nu a putut fi citit ca text, așa că Notchd nu l-a modificat.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd gestionează el însuși tastele de volum și luminozitate, astfel încât macOS nu își mai afișează niciodată propria fereastră. Necesită acces la Accesibilitate.";

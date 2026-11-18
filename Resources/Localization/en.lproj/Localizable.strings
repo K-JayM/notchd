@@ -529,10 +529,10 @@
 "Remove Step" = "Remove Step";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display.";
 "Hide the macOS overlay" = "Hide the macOS overlay";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "Pauses the system's own volume and brightness pop-up while notchd is running.";
 "No crash reports" = "No crash reports";
 "1 crash report" = "1 crash report";
 "%lld crash reports" = "%lld crash reports";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere.";
 "Finish your capture, then try again." = "Finish your capture, then try again.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "~/.codex/config.toml couldn't be read as text, so Notchd left it alone.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access.";

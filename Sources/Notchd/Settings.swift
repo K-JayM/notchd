@@ -445,7 +445,10 @@ private struct GeneralPane: View {
                     Group {
                         VStack(alignment: .leading, spacing: 2) {
                             Toggle("Hide the macOS overlay", isOn: $settings.prefs.hudEnabled)
-                            Caption("Pauses the system's own volume and brightness pop-up while notchd is running.")
+                            Caption("notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access.")
+                            if settings.prefs.hudEnabled, HUDCenter.shared.needsAccessibility {
+                                Button("Allow Accessibility…") { _ = ClipboardStore.canPaste(prompt: true) }
+                            }
                         }
                         Toggle("Keyboard backlight too", isOn: $settings.prefs.hudKeyboard)
                         Toggle("On every screen", isOn: $settings.prefs.hudAllScreens)

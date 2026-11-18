@@ -529,10 +529,10 @@
 "Remove Step" = "הסרת השלב";
 "The notch grows to show the level when you change the volume or brightness. Brightness works on the built-in display." = "המגרעת גדלה כדי להציג את הרמה בעת שינוי עוצמת הקול או הבהירות. בהירות פועלת בצג המובנה.";
 "Hide the macOS overlay" = "הסתרת תצוגת macOS";
-"Pauses the system's own volume and brightness pop-up while notchd is running." = "משהה את חלונית עוצמת הקול והבהירות של המערכת כל עוד notchd פועל.";
 "No crash reports" = "אין דוחות קריסה";
 "1 crash report" = "דוח קריסה אחד";
 "%lld crash reports" = "%lld דוחות קריסה";
 "If notchd crashes or freezes, a report is saved on this Mac, in ~/Library/Logs/Notchd. Nothing is sent anywhere." = "אם notchd קורס או נתקע, נשמר דוח ב־Mac הזה, ב־~/Library/Logs/Notchd. שום דבר לא נשלח לשום מקום.";
 "Finish your capture, then try again." = "יש לסיים את הצילום ולנסות שוב.";
 "~/.codex/config.toml couldn't be read as text, so Notchd left it alone." = "לא ניתן היה לקרוא את ~/.codex/config.toml כטקסט, לכן Notchd לא נגע בו.";
+"notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access." = "notchd מטפל בעצמו במקשי עוצמת הקול והבהירות, כך ש־macOS אף פעם לא מציג את החלונית שלו. דורש גישת ״נגישות״.";

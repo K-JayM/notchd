@@ -87,6 +87,20 @@ enum Brightness {
         return unsafeBitCast(symbol, to: Get.self)
     }()
 
+    private typealias Set = @convention(c) (CGDirectDisplayID, Float) -> Int32
+    private static let set: Set? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/DisplayServices.framework/DisplayServices", RTLD_NOW),
+              let symbol = dlsym(handle, "DisplayServicesSetBrightness") else { return nil }
+        return unsafeBitCast(symbol, to: Set.self)
+    }()
+
+    /// Sets the built-in display's brightness; false when that isn't possible here.
+    @discardableResult
+    static func setCurrent(_ level: Double) -> Bool {
+        guard let set, let display = builtInDisplay else { return false }
+        return set(display, Float(min(max(level, 0), 1))) == 0
+    }
+
     /// 0...1, nil when there's no built-in display (or the API went away).
     static func current() -> Double? {
         guard let get, let display = builtInDisplay else { return nil }
@@ -172,6 +186,49 @@ final class HUDCenter {
                                                           queue: .main) { [weak self] _ in self?.apply() }
     }
 
+    // MARK: Handling the keys ourselves
+
+    /// What a volume key does: 16 steps like macOS (64 with ⌥⇧). Volume up while muted just unmutes.
+    static func volumeAfterKey(_ code: Int, level: Double, muted: Bool, fine: Bool) -> (level: Double, muted: Bool) {
+        if code == 7 { return (level, !muted) }
+        let steps = fine ? 64.0 : 16.0
+        let position = (min(max(level, 0), 1) * steps).rounded()
+        if code == 0 { return muted ? (level, false) : (min(position + 1, steps) / steps, false) }
+        let next = max(position - 1, 0) / steps
+        return (next, muted && next > 0)
+    }
+
+    /// Called by the key tap. Returns true when the key was handled here, so macOS never sees it
+    /// (and never shows its own pop-up); false hands it back to the system.
+    func handleKey(code: Int, down: Bool, fine: Bool) -> Bool {
+        switch code {
+        case 0, 1, 7:
+            guard AudioDevices.canSetVolume, let level = AudioVolume.shared.level else { return false }
+            guard down else { return true }
+            let next = Self.volumeAfterKey(code, level: level, muted: AudioVolume.shared.muted, fine: fine)
+            if next.muted != AudioVolume.shared.muted { AudioDevices.setMuted(next.muted) }
+            if next.level != level { AudioDevices.setVolume(next.level) }
+            if next.muted { AudioDevices.setMuted(true) }  // setting a volume unmutes
+            show(HUDState(kind: .volume, level: next.level, muted: next.muted))
+            return true
+        case 2, 3:
+            guard let level = Brightness.current() else { return false }
+            guard down else { return true }
+            let steps = fine ? 64.0 : 16.0
+            let next = min(max(((level * steps).rounded() + (code == 2 ? 1 : -1)) / steps, 0), 1)
+            guard Brightness.setCurrent(next) else { return false }
+            lastBrightness = next
+            show(HUDState(kind: .brightness, level: next))
+            return true
+        default:
+            return false
+        }
+    }
+
+    private var tapRetry: Timer?
+    /// Hiding is on but Accessibility access hasn't been given yet (Settings shows a button for it).
+    private(set) var needsAccessibility = false
+
     private var enabled = false
     private var hiding = false
     private var hidesSystemOverlay: Bool { Settings.shared.prefs.volumeInNotch && Settings.shared.prefs.hudEnabled }
@@ -188,7 +245,27 @@ final class HUDCenter {
     /// Follows the settings: starts or stops sampling, and pauses or resumes the system overlay.
     private func apply() {
         let on = Settings.shared.prefs.volumeInNotch
-        let hide = hidesSystemOverlay
+        let wantsHide = hidesSystemOverlay
+        // Best way to hide the system pop-up: take the keys before macOS does (needs Accessibility).
+        // It's the only way on macOS 26, where the pop-up no longer comes from a helper we can pause.
+        if wantsHide {
+            let tapped = MediaKeyTap.shared.start()
+            needsAccessibility = !tapped
+            if !tapped, tapRetry == nil {
+                // Access is granted in System Settings, outside the app: keep looking for it.
+                tapRetry = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.apply() }
+            } else if tapped {
+                tapRetry?.invalidate()
+                tapRetry = nil
+            }
+        } else {
+            MediaKeyTap.shared.stop()
+            needsAccessibility = false
+            tapRetry?.invalidate()
+            tapRetry = nil
+        }
+        // Without the tap, fall back to pausing the system's overlay helper (works up to macOS 15).
+        let hide = wantsHide && !MediaKeyTap.shared.isActive
         if hide {
             if !hiding { Self.systemOverlay(paused: true) }
             // macOS relaunches the overlay helper now and then: pause it again.
@@ -221,6 +298,7 @@ final class HUDCenter {
 
     /// On quit: never leave the system overlay paused behind us.
     func stop() {
+        MediaKeyTap.shared.stop()
         if hiding { Self.systemOverlay(paused: false, wait: true) }
     }
 
@@ -309,6 +387,57 @@ final class HUDCenter {
         guard (try? process.run()) != nil else { return }  // waiting on a process that never started throws
         process.waitUntilExit()
     }
+}
+
+// MARK: - Key tap
+
+/// Sees the volume and brightness keys before macOS does and lets `HUDCenter` act on them instead.
+/// Changing key events needs Accessibility access; without it `start()` returns false and nothing changes.
+final class MediaKeyTap {
+    static let shared = MediaKeyTap()
+    fileprivate var port: CFMachPort?
+    private var source: CFRunLoopSource?
+    var isActive: Bool { port != nil }
+
+    @discardableResult
+    func start() -> Bool {
+        if port != nil { return true }
+        guard AXIsProcessTrusted() else { return false }
+        let mask = CGEventMask(1) << 14  // NX_SYSDEFINED: media keys
+        guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                           eventsOfInterest: mask, callback: mediaKeyTapCallback, userInfo: nil) else { return false }
+        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: port, enable: true)
+        self.port = port
+        self.source = source
+        return true
+    }
+
+    func stop() {
+        guard let port else { return }
+        CGEvent.tapEnable(tap: port, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(port)
+        self.port = nil
+        source = nil
+    }
+}
+
+private func mediaKeyTapCallback(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent,
+                                 refcon: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
+    // macOS switches a tap off if it ever answers slowly: switch it back on.
+    if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        if let port = MediaKeyTap.shared.port { CGEvent.tapEnable(tap: port, enable: true) }
+        return Unmanaged.passUnretained(event)
+    }
+    guard type.rawValue == 14, let key = NSEvent(cgEvent: event), key.subtype.rawValue == 8 else {
+        return Unmanaged.passUnretained(event)
+    }
+    let code = (key.data1 & 0xFFFF_0000) >> 16
+    let down = (key.data1 & 0xFF00) >> 8 == 0x0A
+    let fine = key.modifierFlags.contains([.option, .shift])
+    return HUDCenter.shared.handleKey(code: code, down: down, fine: fine) ? nil : Unmanaged.passUnretained(event)
 }
 
 extension Notification.Name {
