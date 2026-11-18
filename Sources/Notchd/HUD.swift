@@ -179,6 +179,7 @@ final class HUDCenter {
         // A crash while it was on would leave the system overlay paused for good: resume it at launch.
         if !hidesSystemOverlay { Self.systemOverlay(paused: false) }
         apply()
+        askForAccessibilityOnce()
         NotificationCenter.default.addObserver(forName: .prefsChanged, object: nil, queue: .main) { [weak self] _ in
             self?.apply()
         }
@@ -225,13 +226,24 @@ final class HUDCenter {
         }
     }
 
+    /// Hiding the system pop-up is on by default and needs Accessibility access: ask for it, once.
+    /// After that the button in Settings › General is the way to grant it.
+    private func askForAccessibilityOnce() {
+        let asked = "askedAccessibilityForOverlay"
+        guard hidesSystemOverlay, needsAccessibility, !UserDefaults.standard.bool(forKey: asked) else { return }
+        UserDefaults.standard.set(true, forKey: asked)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        }
+    }
+
     private var tapRetry: Timer?
     /// Hiding is on but Accessibility access hasn't been given yet (Settings shows a button for it).
     private(set) var needsAccessibility = false
 
     private var enabled = false
     private var hiding = false
-    private var hidesSystemOverlay: Bool { Settings.shared.prefs.volumeInNotch && Settings.shared.prefs.hudEnabled }
+    private var hidesSystemOverlay: Bool { Settings.shared.prefs.volumeInNotch && Settings.shared.prefs.hideSystemOverlay }
 
     /// Media keys arrive as "system defined" events: subtype 8, key code in the high word of data1,
     /// 0x0A in the next byte while the key is down. 0 = volume up, 1 = volume down, 7 = mute.

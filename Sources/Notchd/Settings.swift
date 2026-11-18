@@ -140,7 +140,8 @@ struct Prefs: Codable, Equatable {
     var batteryLowThreshold = 20.0
     // Volume & brightness HUD
     var volumeInNotch = true           // show changes in the notch
-    var hudEnabled = false             // also pause the system's own overlay
+    // A new name on purpose: its predecessor ("hudEnabled") was off for everyone, and this is on by default.
+    var hideSystemOverlay = true       // handle the keys ourselves, so macOS doesn't show its own
     var hudAllScreens = false
     var hudColoredVolume = true
     var hudKeyboard = true
@@ -444,9 +445,9 @@ private struct GeneralPane: View {
                     }
                     Group {
                         VStack(alignment: .leading, spacing: 2) {
-                            Toggle("Hide the macOS overlay", isOn: $settings.prefs.hudEnabled)
+                            Toggle("Hide the macOS overlay", isOn: $settings.prefs.hideSystemOverlay)
                             Caption("notchd handles the volume and brightness keys itself, so macOS never shows its own pop-up. Needs Accessibility access.")
-                            if settings.prefs.hudEnabled, HUDCenter.shared.needsAccessibility {
+                            if settings.prefs.hideSystemOverlay, HUDCenter.shared.needsAccessibility {
                                 Button("Allow Accessibility…") { _ = ClipboardStore.canPaste(prompt: true) }
                             }
                         }

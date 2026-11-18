@@ -116,7 +116,7 @@ Everything you copy appears in the notch's **Clipboard** tab: text, links, image
 - Everything stays on your Mac, in Application Support.
 
 ### More in the notch
-- **Volume, brightness and keyboard backlight**: change one and the notch grows to show the level, with a bar and an icon that follows it. On by default. Turn on **Hide the macOS overlay** in Settings → General to see only the notch's: notchd then handles those keys itself, which needs Accessibility access.
+- **Volume, brightness and keyboard backlight**: change one and the notch grows to show the level, with a bar and an icon that follows it. On by default, and notchd handles those keys itself so macOS doesn't show its own pop-up too. That needs Accessibility access, which notchd asks for once; until it's given (or if you turn off **Hide the macOS overlay** in Settings → General) both show.
 - **Keep awake**: the cup in the open notch keeps your Mac (and its display) from sleeping, for a while or until you stop it.
 - **Coding agents**: Settings → Live Activities → Coding Agents connects Claude Code and Codex with one click. It adds a tiny hook to their config (with a backup) that drops event files into Notchd's folder; nothing leaves your Mac.
 
