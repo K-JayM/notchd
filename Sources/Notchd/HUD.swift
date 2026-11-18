@@ -237,6 +237,7 @@ final class HUDCenter {
         }
     }
 
+    private var loggedTap: Bool?
     private var tapRetry: Timer?
     /// Hiding is on but Accessibility access hasn't been given yet (Settings shows a button for it).
     private(set) var needsAccessibility = false
@@ -262,6 +263,11 @@ final class HUDCenter {
         // It's the only way on macOS 26, where the pop-up no longer comes from a helper we can pause.
         if wantsHide {
             let tapped = MediaKeyTap.shared.start()
+            if tapped != loggedTap {
+                loggedTap = tapped
+                NSLog("[Keys] handling the volume and brightness keys: %@ (Accessibility access: %@)", tapped ? "yes" : "no",
+                      AXIsProcessTrusted() ? "granted" : "not granted")
+            }
             needsAccessibility = !tapped
             if !tapped, tapRetry == nil {
                 // Access is granted in System Settings, outside the app: keep looking for it.
